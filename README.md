@@ -11,21 +11,29 @@ npm run dev        # http://localhost:5173
 npm run build      # typecheck + build de production
 ```
 
+## Principe
+
+Des **règles de segmentation** sont définies sur des caractéristiques de la fiche article (SKU, catégorie, marque,
+saison…). Lors de l'**import du stock** d'un article, pour chaque entrepôt, la première règle active (par priorité) dont
+tous les critères correspondent calcule la répartition, en **pourcentage** du stock ou en **quantité fixe** par entrepôt.
+Sans règle correspondante, tout le stock reste non alloué.
+
+- Critères : ET entre caractéristiques, OU entre les valeurs d'une même caractéristique
+  (ex. `Catégorie ∈ {Irons} ET Marque ∈ {Calor}`).
+- Pourcentages arrondis à l'inférieur, le reste est non alloué ; quantités fixes plafonnées au stock, dans l'ordre des segments.
+
 ## Écrans
 
-- **Liste des articles** (`/`) : recherche (nom, SKU, catégorie), tri, pagination, filtres « Below threshold » par segment,
-  sélection multiple, import de fichier.
-- **Détail article** (`/items/:id`) : totaux par segment, répartition par entrepôt, période d'activation.
-  Un clic sur une ligne ouvre **Edit segmentation** (quantités, seuils, période ; le non alloué est recalculé et le
-  dépassement du stock est bloqué).
-- **Add item segmentation** : applique une règle en masse
-  1. cible : articles choisis (ou sélectionnés dans la liste) **ou** catégories entières,
-  2. entrepôts concernés,
-  3. règle en **pourcentage** du stock (ex. 50 % / 20 % / 30 %) ou en **quantité fixe** par entrepôt (plafonnée au stock
-     disponible, dans l'ordre des segments), seuils d'alerte optionnels,
-  4. période d'activation.
-- **File import** : CSV `sku;location_code;brand_site;brand_site_threshold;…;start_date;end_date` (modèle téléchargeable).
-- **Cloche** : liste des articles sous seuil.
+- **Segmentation rules** (`/`, écran principal) : recherche des règles par caractéristique (sélecteur + texte).
+  Une recherche par SKU liste toutes les règles qui s'appliquent à l'article (y compris via sa catégorie, sa marque…)
+  et indique la règle effective. Tableau : priorité (réordonnable), critères, entrepôts, répartition, période, nombre
+  d'articles concernés (lien vers leur allocation), activation, duplication, suppression.
+  Actions : **New segmentation rule**, **Stock import** (CSV `sku;location_code;quantity`, applique les règles),
+  **Apply rules** (re-segmente le stock actuel).
+- **Item allocation** (`/items`) : recherche d'un article et visualisation de son allocation (écran existant), filtre
+  par règle, création d'une règle pour les articles sélectionnés.
+- **Détail article** (`/items/:id`) : allocation par entrepôt, source (règle / manuel / aucune), règle qui sera appliquée
+  au prochain import ; clic sur une ligne = modification manuelle (**Edit segmentation**) ; import CSV de segmentation.
 
 ## Architecture
 
@@ -36,8 +44,10 @@ src/
   api/index.ts         Point unique où brancher la vraie API
   config/segments.ts   Liste des segments (sera fournie par l'API)
   utils/allocation.ts  Règles métier : non alloué, alertes, calcul d'une règle
-  pages/               Liste & détail
-  features/            Modales (édition, règle en masse, import)
+  config/attributes.ts Caractéristiques article utilisables dans les critères
+  utils/rules.ts       Correspondance article ↔ critères, règle effective
+  pages/               Règles, liste des articles, détail
+  features/            Éditeur de règle, édition manuelle, imports
 ```
 
 Pour brancher le backend : écrire un `httpApi` implémentant `StockAllocationApi` et l'exporter dans `src/api/index.ts`.
