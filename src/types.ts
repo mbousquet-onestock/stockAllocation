@@ -11,9 +11,11 @@ export interface Item {
   sku: string;
   name: string;
   price: number;
-  /** Free attributes displayed under the name (e.g. capacity). */
-  attributes: string[];
+  /** Free specs displayed under the name (e.g. capacity). */
+  specs: string[];
   category: string;
+  brand: string;
+  season: string;
   imageUrl?: string;
 }
 
@@ -40,7 +42,15 @@ export interface Allocation {
   totalStock: number;
   period: ActivationPeriod;
   segments: Record<SegmentId, SegmentAllocation>;
+  /** What produced the current segmentation. */
+  source: AllocationSource;
 }
+
+export type AllocationSource =
+  | { type: 'rule'; ruleId: string }
+  | { type: 'manual' }
+  /** No rule matched at the last stock import: everything stays non allocated. */
+  | { type: 'none' };
 
 export type SegmentTotals = Record<SegmentId, number>;
 
@@ -57,6 +67,8 @@ export interface ItemSummary {
 export interface LocationRow {
   location: StockLocation;
   allocation: Allocation;
+  /** Rule that produced the allocation (when source is a rule). */
+  rule?: { id: string; name: string };
   nonAllocated: number;
   warnings: SegmentId[];
 }
@@ -64,6 +76,8 @@ export interface LocationRow {
 export interface ItemDetail {
   summary: ItemSummary;
   rows: LocationRow[];
+  /** Rule the next stock import would use, per location id. */
+  effectiveRules: Record<string, { id: string; name: string } | undefined>;
 }
 
 export type SortDirection = 'asc' | 'desc';
@@ -83,6 +97,8 @@ export interface ItemQuery {
   search?: string;
   /** Only items below threshold for this segment. */
   warningSegment?: SegmentId;
+  /** Only items matched by this rule's criteria. */
+  ruleId?: string;
   sort?: Sort<ItemSortKey>;
   page: number; // 0-based
   pageSize: number;
@@ -93,16 +109,28 @@ export interface WarningSummary {
   itemCount: number;
 }
 
-/** Target of a segmentation rule: explicit items or whole categories. */
-export type RuleTarget =
-  | { type: 'items'; itemIds: string[] }
-  | { type: 'categories'; categories: string[] };
+/** Item characteristics a rule can be defined on. */
+export type AttributeKey = 'sku' | 'category' | 'brand' | 'season';
+
+/** Condition on one characteristic: the item value must be one of `values`. */
+export interface Criterion {
+  attribute: AttributeKey;
+  values: string[];
+}
 
 export type RuleMode = 'percentage' | 'quantity';
 
-/** A segmentation rule applied in bulk to a set of items. */
+/**
+ * Segmentation rule, applied when the stock of a matching item is imported.
+ * All criteria must match (AND); several values in one criterion are alternatives (OR).
+ * When several rules match, the one with the lowest priority number wins.
+ */
 export interface SegmentationRule {
-  target: RuleTarget;
+  id: string;
+  name: string;
+  priority: number;
+  enabled: boolean;
+  criteria: Criterion[];
   /** Empty = all stock locations. */
   locationIds: string[];
   mode: RuleMode;
@@ -110,13 +138,49 @@ export interface SegmentationRule {
   values: Record<SegmentId, number>;
   thresholds: Record<SegmentId, number | null>;
   period: ActivationPeriod;
+  updatedAt: string; // ISO date-time
 }
 
-export interface ApplyResult {
+export type RuleInput = Omit<SegmentationRule, 'id' | 'priority' | 'updatedAt'>;
+
+export interface RuleSummary {
+  rule: SegmentationRule;
+  matchedItemCount: number;
+}
+
+export interface RuleQuery {
+  search?: string;
+  /** Restrict the search to one characteristic. */
+  attribute?: AttributeKey;
+  page: number;
+  pageSize: number;
+}
+
+export interface RulePage extends Page<RuleSummary> {
+  /** Number of rules without search filter (last priority). */
+  ruleCount: number;
+  /** Set when the search is an item SKU: rules matching that item, the effective one first. */
+  matchedItem?: { item: Item; effectiveRuleId?: string };
+}
+
+export interface RulePreview {
   itemCount: number;
-  allocationCount: number;
+  sample: Item[];
+}
+
+export interface StockImportRow {
+  sku: string;
+  locationCode: string;
+  quantity: number;
+}
+
+export interface StockImportResult {
+  updated: number;
+  byRule: number;
+  withoutRule: number;
   /** Allocations where fixed quantities exceeded the stock and were capped. */
-  cappedCount: number;
+  capped: number;
+  errors: string[];
 }
 
 export interface ImportRow {

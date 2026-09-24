@@ -1,5 +1,5 @@
 import { SEGMENT_IDS } from '../config/segments';
-import type { ImportRow, SegmentAllocation } from '../types';
+import type { ImportRow, SegmentAllocation, StockImportRow } from '../types';
 
 export const IMPORT_HEADERS = [
   'sku',
@@ -77,4 +77,28 @@ export function downloadText(filename: string, content: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+export const STOCK_HEADERS = ['sku', 'location_code', 'quantity'];
+
+/** Parses a stock file: one line per item and stock location. */
+export function parseStockCsv(text: string): { rows: StockImportRow[]; errors: string[] } {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  if (!lines.length) return { rows: [], errors: ['The file is empty'] };
+  const sep = lines[0].includes(';') ? ';' : ',';
+  const headers = lines[0].split(sep).map((h) => h.trim().toLowerCase());
+  const [iSku, iLoc, iQty] = STOCK_HEADERS.map((h) => headers.indexOf(h));
+  if (iSku < 0 || iLoc < 0 || iQty < 0) return { rows: [], errors: [`Required columns: ${STOCK_HEADERS.join(', ')}`] };
+  const rows: StockImportRow[] = [];
+  const errors: string[] = [];
+  lines.slice(1).forEach((line, i) => {
+    const cells = line.split(sep).map((c) => c.trim());
+    const quantity = Number(cells[iQty]);
+    if (!Number.isInteger(quantity) || quantity < 0) {
+      errors.push(`Line ${i + 2}: invalid quantity "${cells[iQty] ?? ''}"`);
+      return;
+    }
+    rows.push({ sku: cells[iSku] ?? '', locationCode: cells[iLoc] ?? '', quantity });
+  });
+  return { rows, errors };
 }

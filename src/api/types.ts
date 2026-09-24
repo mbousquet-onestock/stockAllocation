@@ -1,16 +1,22 @@
 import type {
   Allocation,
-  ApplyResult,
+  AttributeKey,
   ImportResult,
   ImportRow,
+  Item,
   ItemDetail,
   ItemQuery,
   ItemSummary,
   Page,
+  RuleInput,
+  RulePage,
+  RulePreview,
+  RuleQuery,
+  SegmentationRule,
+  StockImportResult,
+  StockImportRow,
   StockLocation,
   WarningSummary,
-  Item,
-  SegmentationRule,
 } from '../types';
 
 /**
@@ -19,16 +25,32 @@ import type {
  * only needs to implement this interface and be exported from api/index.ts.
  */
 export interface StockAllocationApi {
+  // --- Segmentation rules
+  listRules(query: RuleQuery): Promise<RulePage>;
+  getRule(ruleId: string): Promise<SegmentationRule>;
+  createRule(rule: RuleInput): Promise<SegmentationRule>;
+  updateRule(ruleId: string, rule: RuleInput): Promise<SegmentationRule>;
+  deleteRule(ruleId: string): Promise<void>;
+  /** Moves a rule one step up (-1) or down (+1) in the priority order. */
+  moveRule(ruleId: string, direction: -1 | 1): Promise<void>;
+  /** Items matched by some criteria (rule editor preview). */
+  previewCriteria(rule: Pick<SegmentationRule, 'criteria'>): Promise<RulePreview>;
+  /** Existing values of an item characteristic, for criteria suggestions. */
+  listAttributeValues(attribute: AttributeKey, search: string): Promise<Array<{ value: string; label?: string; itemCount: number }>>;
+  /** Re-runs the rules on the stock already imported (all items, or those matched by one rule). */
+  applyRulesToCurrentStock(ruleId?: string): Promise<StockImportResult>;
+
+  // --- Stock & allocation
+  importStock(rows: StockImportRow[]): Promise<StockImportResult>;
   listItems(query: ItemQuery): Promise<Page<ItemSummary>>;
   getWarningSummary(): Promise<WarningSummary[]>;
   getItemDetail(itemId: string): Promise<ItemDetail>;
-  /** Items / categories lookup used when building a segmentation rule. */
-  searchItems(search: string, limit?: number): Promise<Item[]>;
-  listCategories(): Promise<Array<{ name: string; itemCount: number }>>;
   listLocations(): Promise<StockLocation[]>;
+  /** Manual override of one item / location segmentation. */
   updateAllocation(allocation: Allocation): Promise<Allocation>;
-  applyRule(rule: SegmentationRule): Promise<ApplyResult>;
   importRows(rows: ImportRow[]): Promise<ImportResult>;
+  searchItems(search: string, limit?: number): Promise<Item[]>;
+
   /** Mock only: restore the initial data set. */
   reset?(): Promise<void>;
 }

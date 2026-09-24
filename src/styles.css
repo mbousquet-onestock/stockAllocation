@@ -199,3 +199,56 @@ main { padding: 0 40px 100px; }
   main, .app-header { padding-left: 16px; padding-right: 16px; }
   .toolbar, .detail-header { flex-wrap: wrap; }
 }
+
+/* Navigation */
+.app-header { gap: 32px; justify-content: flex-start; }
+.nav { display: flex; gap: 4px; }
+.nav a { padding: 8px 14px; border-radius: var(--radius); color: var(--muted); text-decoration: none; font-weight: 500; }
+.nav a:hover { color: var(--text); background: #f0f0f0; }
+.nav a.active { color: var(--primary-dark); background: var(--primary-soft); }
+
+/* Rules page */
+.hint { margin: 10px 2px 0; }
+.btn--danger { background: var(--error); color: #fff; }
+.col-priority { width: 90px; }
+.col-actions { width: 150px; white-space: nowrap; text-align: right; }
+.priority { display: flex; align-items: center; gap: 6px; }
+.priority__num { display: inline-flex; width: 26px; height: 26px; border-radius: 50%; background: var(--badge); align-items: center; justify-content: center; font-weight: 500; }
+.priority__arrows { display: flex; flex-direction: column; }
+.icon-btn--sm { width: 22px; height: 18px; border-radius: 4px; }
+.rule-title { font-weight: 500; font-size: 15px; display: flex; gap: 8px; align-items: center; }
+.criteria-chips { display: flex; flex-wrap: wrap; gap: 6px; max-width: 360px; }
+.chip--criterion { cursor: default; background: #f7f7f7; }
+.rule-alloc { display: flex; flex-direction: column; gap: 4px; min-width: 150px; }
+.rule-alloc__values { display: flex; gap: 10px; font-size: 13px; white-space: nowrap; }
+.legend { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
+.legend-row { display: flex; gap: 8px; font-size: 11px; font-weight: 400; color: var(--muted); margin-top: 2px; }
+.stack-bar--mini { height: 6px; border-radius: 3px; }
+.table tr.is-disabled td { color: var(--muted); }
+.table tr.is-disabled .stack-bar { opacity: .4; }
+.table tr.is-highlighted td { background: var(--primary-soft); }
+.badge--link { text-decoration: none; color: var(--primary-dark); background: var(--primary-soft); font-weight: 500; }
+.badge--rule { background: var(--primary-soft); color: var(--primary-dark); }
+.matched-item { display: flex; align-items: center; gap: 16px; margin-top: 12px; padding: 10px 12px; border: 1px solid var(--primary); background: var(--primary-soft); border-radius: var(--radius); }
+.switch { position: relative; display: inline-block; width: 34px; height: 18px; vertical-align: middle; margin-right: 6px; cursor: pointer; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch span { position: absolute; inset: 0; background: #bdbdbd; border-radius: 9px; transition: .15s; }
+.switch span::after { content: ''; position: absolute; width: 14px; height: 14px; left: 2px; top: 2px; background: #fff; border-radius: 50%; transition: .15s; }
+.switch input:checked + span { background: var(--primary); }
+.switch input:checked + span::after { transform: translateX(16px); }
+
+/* Rule editor */
+.rule-name { display: flex; align-items: flex-end; gap: 16px; }
+.criteria { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.criteria__row { display: flex; align-items: flex-start; gap: 8px; width: 100%; }
+.criteria__row .select { width: 130px; flex-shrink: 0; }
+.criteria__op { line-height: 36px; color: var(--muted); width: 40px; flex-shrink: 0; }
+.criteria__op + .select + .criteria__op { width: auto; }
+.values-input { position: relative; flex: 1; }
+.values-input__box { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-height: 36px; padding: 3px 6px; border: 1px solid var(--border); border-radius: var(--radius); }
+.values-input__box:focus-within { border-color: var(--primary); }
+.values-input__box input { flex: 1; min-width: 120px; border: none; outline: none; height: 28px; background: none; }
+.dropdown { position: absolute; left: 0; right: 0; top: calc(100% + 2px); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 6px 16px rgba(0,0,0,.12); max-height: 220px; overflow-y: auto; z-index: 3; }
+.dropdown__option { display: flex; width: 100%; gap: 8px; padding: 8px 10px; border: none; background: none; text-align: left; cursor: pointer; }
+.dropdown__option:hover { background: #f5f5f5; }
+.preview { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); font-size: 13px; }

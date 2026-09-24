@@ -158,7 +158,7 @@ export function ItemIdentity({ item, detailed }: { item: Item; detailed?: boolea
         <div className="item-identity__name">{item.name}</div>
         {detailed && (
           <div className="item-identity__meta">
-            {formatPrice(item.price)} | {item.category} | {item.attributes.join(' | ')}
+            {formatPrice(item.price)} | {item.category} | {item.brand} | {item.specs.join(' | ')}
           </div>
         )}
         <div className="muted">{item.sku}</div>

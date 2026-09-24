@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { useDataVersion } from '../components/DataVersion';
-import { DownloadIcon, WarningIcon } from '../components/Icons';
+import { CloseIcon, DownloadIcon, WarningIcon } from '../components/Icons';
 import { Checkbox, ItemIdentity, Pagination, QtyBadge, SortHeader, Spinner } from '../components/ui';
 import { SEGMENTS, segmentLabel } from '../config/segments';
-import { AddSegmentationModal } from '../features/AddSegmentationModal';
-import { FileImportModal } from '../features/FileImportModal';
+import { RuleEditorModal } from '../features/RuleEditorModal';
+import { StockImportModal } from '../features/StockImportModal';
 import type { Item, ItemSortKey, SegmentId, Sort } from '../types';
 import { plural } from '../utils/format';
 import { useAsync, useDebounced } from '../utils/useAsync';
@@ -19,6 +19,7 @@ export function ItemListPage() {
   const page = Number(params.get('page') ?? 0);
   const pageSize = Number(params.get('size') ?? 25);
   const warningSegment = (params.get('warning') as SegmentId | null) ?? undefined;
+  const ruleId = params.get('rule') ?? undefined;
   const sortParam = params.get('sort');
   const sort: Sort<ItemSortKey> | undefined = sortParam
     ? { key: sortParam.replace(/^-/, '') as ItemSortKey, direction: sortParam.startsWith('-') ? 'desc' : 'asc' }
@@ -41,9 +42,10 @@ export function ItemListPage() {
   }, [debouncedSearch]);
 
   const list = useAsync(
-    () => api.listItems({ search, page, pageSize, sort, warningSegment }),
-    [search, page, pageSize, sortParam, warningSegment, version],
+    () => api.listItems({ search, page, pageSize, sort, warningSegment, ruleId }),
+    [search, page, pageSize, sortParam, warningSegment, ruleId, version],
   );
+  const rule = useAsync(() => (ruleId ? api.getRule(ruleId) : Promise.resolve(undefined)), [ruleId, version]);
   const warnings = useAsync(() => api.getWarningSummary(), [version]);
 
   const rows = list.data?.data ?? [];
@@ -83,16 +85,24 @@ export function ItemListPage() {
       <div className="toolbar">
         <input className="input grow" placeholder="Search" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
         <button type="button" className="btn btn--primary" onClick={() => setModal('add')}>
-          {selected.size ? `Add segmentation to ${plural(selected.size, 'item')}` : 'Add item segmentation'}
+          {selected.size ? `Create a rule for ${plural(selected.size, 'item')}` : 'New segmentation rule'}
         </button>
         <button type="button" className="btn btn--secondary" onClick={() => setModal('import')}>
-          <DownloadIcon /> File import
+          <DownloadIcon /> Stock import
         </button>
       </div>
 
-      {(warnings.data?.length ?? 0) > 0 && (
+      {(ruleId || (warnings.data?.length ?? 0) > 0) && (
         <div className="chips">
-          {warnings.data!.map((w) => (
+          {ruleId && (
+            <span className="chip chip--selected">
+              Matched by rule: {rule.data?.name ?? '…'}
+              <button type="button" onClick={() => update({ rule: undefined, page: undefined })} aria-label="Remove rule filter">
+                <CloseIcon width={12} height={12} />
+              </button>
+            </span>
+          )}
+          {(warnings.data ?? []).map((w) => (
             <button
               type="button"
               key={w.segment}
@@ -186,10 +196,14 @@ export function ItemListPage() {
       <div className="list-footer">{pagination}</div>
 
       {modal === 'add' && (
-        <AddSegmentationModal
-          initialItems={[...selected.values()]}
+        <RuleEditorModal
+          initial={
+            selected.size
+              ? { criteria: [{ attribute: 'sku', values: [...selected.values()].map((i) => i.sku) }] }
+              : undefined
+          }
           onClose={() => setModal(null)}
-          onApplied={() => {
+          onSaved={() => {
             setModal(null);
             setSelected(new Map());
             bump();
@@ -197,8 +211,7 @@ export function ItemListPage() {
         />
       )}
       {modal === 'import' && (
-        <FileImportModal
-          sample={[...selected.values()].map((i) => ({ sku: i.sku, locationCode: '0001' }))}
+        <StockImportModal
           onClose={() => setModal(null)}
           onImported={() => {
             setModal(null);

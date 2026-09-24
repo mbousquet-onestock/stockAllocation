@@ -5,7 +5,7 @@ import { useDataVersion } from '../components/DataVersion';
 import { ArrowBackIcon, DownloadIcon, WarningIcon } from '../components/Icons';
 import { ItemIdentity, Pagination, QtyBadge, SortHeader, Spinner } from '../components/ui';
 import { SEGMENTS } from '../config/segments';
-import { AddSegmentationModal } from '../features/AddSegmentationModal';
+import { RuleEditorModal } from '../features/RuleEditorModal';
 import { EditSegmentationModal } from '../features/EditSegmentationModal';
 import { FileImportModal } from '../features/FileImportModal';
 import type { LocationRow, SegmentId, Sort } from '../types';
@@ -42,7 +42,7 @@ export function ItemDetailPage() {
   const today = todayIso();
   const navigate = useNavigate();
   // Go back to the list keeping its filters, or to the list when opened directly.
-  const goBack = () => ((window.history.state?.idx ?? 0) > 0 ? navigate(-1) : navigate('/'));
+  const goBack = () => ((window.history.state?.idx ?? 0) > 0 ? navigate(-1) : navigate('/items'));
 
   const rows = useMemo(() => {
     const list = detail.data?.rows ?? [];
@@ -61,7 +61,7 @@ export function ItemDetailPage() {
   if (detail.error)
     return (
       <div className="card page">
-        <Link to="/" className="btn btn--secondary">
+        <Link to="/items" className="btn btn--secondary">
           <ArrowBackIcon /> Back
         </Link>
         <p className="text-error">{detail.error.message}</p>
@@ -69,7 +69,7 @@ export function ItemDetailPage() {
     );
   if (!detail.data) return <Spinner />;
 
-  const { summary } = detail.data;
+  const { summary, effectiveRules: effective } = detail.data;
   const item = summary.item;
   const pageRows = rows.slice(page * pageSize, (page + 1) * pageSize);
   const pagination = (
@@ -100,7 +100,7 @@ export function ItemDetailPage() {
         <ItemIdentity item={item} detailed />
         <span className="grow" />
         <button type="button" className="btn btn--primary" onClick={() => setModal('add')}>
-          Apply a rule
+          Create a rule for this item
         </button>
         <button type="button" className="btn btn--secondary" onClick={() => setModal('import')}>
           <DownloadIcon /> File import
@@ -149,6 +149,8 @@ export function ItemDetailPage() {
                 <th>
                   <SortHeader label="Activation period" sortKey="period" sort={sort} onSort={onSort} />
                 </th>
+                <th>Source</th>
+                <th>Rule at next stock import</th>
               </tr>
             </thead>
             <tbody>
@@ -171,6 +173,24 @@ export function ItemDetailPage() {
                       <span className={`badge ${active ? 'badge--success' : 'badge--muted'}`} title={active ? 'Active' : 'Inactive today'}>
                         {formatPeriod(r.allocation.period)}
                       </span>
+                    </td>
+                    <td>
+                      {r.allocation.source.type === 'rule' ? (
+                        <span className="badge badge--rule">Rule: {r.rule?.name ?? 'deleted'}</span>
+                      ) : r.allocation.source.type === 'manual' ? (
+                        <span className="badge">Manual</span>
+                      ) : (
+                        <span className="badge badge--muted">No rule</span>
+                      )}
+                    </td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {effective[r.location.id] ? (
+                        <Link to={`/?q=${encodeURIComponent(item.sku)}`} className="link">
+                          {effective[r.location.id]!.name}
+                        </Link>
+                      ) : (
+                        <span className="muted">None</span>
+                      )}
                     </td>
                   </tr>
                 );
@@ -195,10 +215,10 @@ export function ItemDetailPage() {
         />
       )}
       {modal === 'add' && (
-        <AddSegmentationModal
-          initialItems={[item]}
+        <RuleEditorModal
+          initial={{ name: item.name, criteria: [{ attribute: 'sku', values: [item.sku] }] }}
           onClose={() => setModal(null)}
-          onApplied={() => {
+          onSaved={() => {
             setModal(null);
             bump();
           }}

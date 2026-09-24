@@ -76,6 +76,7 @@ export function computeQuantities(
   return { quantities, capped };
 }
 
+/** Recomputes an allocation with a rule, keeping its stock. */
 export function applyRuleToAllocation(a: Allocation, rule: SegmentationRule): { allocation: Allocation; capped: boolean } {
   const { quantities, capped } = computeQuantities(a.totalStock, rule);
   return {
@@ -84,6 +85,17 @@ export function applyRuleToAllocation(a: Allocation, rule: SegmentationRule): { 
       ...a,
       period: rule.period,
       segments: segmentRecord((id) => ({ quantity: quantities[id], threshold: rule.thresholds[id] })),
+      source: { type: 'rule', ruleId: rule.id },
     },
+  };
+}
+
+/** Allocation when no rule matches: the whole stock stays non allocated. */
+export function unallocated(a: Allocation): Allocation {
+  return {
+    ...a,
+    period: { type: 'always' },
+    segments: segmentRecord(() => ({ quantity: 0, threshold: null })),
+    source: { type: 'none' },
   };
 }

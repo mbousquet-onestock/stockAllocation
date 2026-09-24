@@ -48,3 +48,15 @@ export const CheckIcon = (p: P) => (
 export const ResetIcon = (p: P) => (
   <svg {...base(p)}><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z" /></svg>
 );
+export const ArrowUpIcon = (p: P) => (
+  <svg {...base(p)}><path d="M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6z" /></svg>
+);
+export const ArrowDownIcon = (p: P) => (
+  <svg {...base(p)}><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z" /></svg>
+);
+export const CopyIcon = (p: P) => (
+  <svg {...base(p)}><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" /></svg>
+);
+export const PlayIcon = (p: P) => (
+  <svg {...base(p)}><path d="M8 5v14l11-7z" /></svg>
+);
