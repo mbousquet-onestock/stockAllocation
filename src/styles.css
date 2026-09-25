@@ -298,3 +298,17 @@ main { padding: 0 40px 100px; }
 .split-type__header + .segment-grid { margin-top: 8px; }
 .split-type__footer { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); display: flex; flex-direction: column; gap: 6px; }
 .rule-alloc + .rule-alloc { margin-top: 8px; }
+
+/* Database settings */
+.db-form { max-width: 760px; }
+.db-actions { display: flex; gap: 10px; align-items: center; }
+.db-actions .spinner { margin: 0; width: 22px; height: 22px; }
+.db-status { border-radius: var(--radius); padding: 12px 16px; border: 1px solid; }
+.db-status.is-ok { border-color: var(--primary); background: var(--primary-soft); }
+.db-status.is-error { border-color: var(--error); background: #fdecea; color: var(--error); }
+.db-status__title { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+.db-status dl { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; margin: 10px 0 0; font-size: 13px; }
+.db-status dt { color: var(--muted); }
+.db-status dd { margin: 0; }
+.db-help { margin-top: 24px; max-width: 760px; font-size: 13px; line-height: 1.5; }
+.db-help ol { padding-left: 20px; margin: 8px 0; }

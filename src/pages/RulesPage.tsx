@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
+import { getDbConfig } from '../api/dbConfig';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { useDataVersion } from '../components/DataVersion';
 import { ArrowDownIcon, ArrowUpIcon, CopyIcon, DownloadIcon, PlayIcon, TrashIcon } from '../components/Icons';
@@ -152,6 +153,9 @@ export function RulesPage() {
       </div>
 
       <p className="muted small hint">
+        <span className={`badge ${getDbConfig().mode === 'remote' ? 'badge--rule' : 'badge--muted'}`}>
+          {getDbConfig().mode === 'remote' ? 'Rules stored in the Vercel database' : 'Rules stored in this browser (demo)'}
+        </span>{' '}
         Rules are applied when the stock of an item is updated on a stock type, by priority: the first enabled rule matching the
         item characteristics, the stock type, the location (and the purchase order for future stock) splits the stock onto the groups
         of the type, in percentage.
@@ -302,7 +306,12 @@ export function RulesPage() {
             })}
           </tbody>
         </table>
-        {list.loading && !list.data && <Spinner />}
+        {list.loading && !list.data && !list.error && <Spinner />}
+        {list.error && (
+          <div className="text-error empty">
+            {list.error.message} — check Settings → Database.
+          </div>
+        )}
         {list.data?.total === 0 && (
           <div className="muted empty">
             No rule found.{' '}

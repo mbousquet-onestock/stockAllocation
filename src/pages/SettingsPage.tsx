@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api';
+import { DatabaseSettings } from './DatabaseSettings';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { useDataVersion } from '../components/DataVersion';
 import { ArrowDownIcon, ArrowUpIcon, EditIcon, TrashIcon, TruckIcon, WarehouseIcon } from '../components/Icons';
@@ -206,7 +207,10 @@ function StockTypesSettings() {
   );
 }
 
-const MENUS = [{ key: 'stock-types', label: 'Stock types' }];
+const MENUS = [
+  { key: 'stock-types', label: 'Stock types' },
+  { key: 'database', label: 'Database' },
+];
 
 export function SettingsPage() {
   const [menu, setMenu] = useState(MENUS[0].key);
@@ -220,7 +224,10 @@ export function SettingsPage() {
           </button>
         ))}
       </aside>
-      <section className="card page grow">{menu === 'stock-types' && <StockTypesSettings />}</section>
+      <section className="card page grow">
+        {menu === 'stock-types' && <StockTypesSettings />}
+        {menu === 'database' && <DatabaseSettings />}
+      </section>
     </div>
   );
 }

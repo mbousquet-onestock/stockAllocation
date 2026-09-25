@@ -37,12 +37,38 @@ npm run build      # typecheck + build de production
   la répartition sur les groupes, la source (règle / manuel / aucune) et la règle du prochain import ; clic sur une
   ligne = modification manuelle.
 - **Settings** (`/settings`) → *Stock types* : création, modification, ordre et suppression des types et de leurs groupes.
+- **Settings** → *Database* : stockage des règles de segmentation (navigateur ou base Vercel), URL de l'API, clé API,
+  test de connexion, initialisation de la base, copie des règles locales vers la base.
+
+## Base de données Vercel (règles de segmentation)
+
+Les règles peuvent être stockées dans une base **Postgres (Neon) sur Vercel**, via les fonctions serverless de `api/` :
+
+| Méthode | Route | Rôle |
+| --- | --- | --- |
+| GET | `/api/health` | État de la connexion (base, table, nombre de règles) |
+| POST | `/api/setup` | Création de la table `segmentation_rules` (idempotent) |
+| GET / POST | `/api/rules` | Liste (par priorité) / création |
+| PUT | `/api/rules` | `{ order: [ids] }` ordre des priorités, ou `{ rules: [...] }` remplacement complet |
+| GET / PUT / DELETE | `/api/rules/:id` | Lecture / modification / suppression |
+
+Mise en place :
+1. Projet Vercel → *Storage* → *Create Database* → *Neon (Postgres)* → connecter au projet (ajoute `DATABASE_URL`).
+2. Optionnel : variable d'environnement `API_KEY` (secret exigé dans l'en-tête `x-api-key`).
+3. Redéployer, puis dans l'application *Settings → Database* : « Vercel database », API URL `/api`, clé API,
+   *Test connection* → *Initialize database* → (option) *Copy local rules to the database* → *Save*.
+
+Les identifiants de la base restent côté serveur (variables d'environnement Vercel) ; le navigateur ne connaît que l'URL
+de l'API et la clé API. En local, mettre `DATABASE_URL` et `API_KEY` dans `.env.local` (voir `.env.example`) :
+`npm run dev` exécute les mêmes fonctions.
 
 ## Architecture
 
 ```
+api/                   Fonctions serverless Vercel (règles de segmentation en base Postgres)
 src/
   api/types.ts         Contrat StockAllocationApi (à implémenter côté HTTP)
+  api/remoteRules.ts   Client HTTP des fonctions /api ; api/dbConfig.ts : paramètres Settings → Database
   api/mockApi.ts       Implémentation mockée (données en mémoire + localStorage)
   api/index.ts         Point unique où brancher la vraie API
   utils/stockTypes.ts  Hiérarchie des types de stock (types principaux → groupes)

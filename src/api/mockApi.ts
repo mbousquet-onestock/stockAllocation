@@ -14,6 +14,8 @@ import type {
 import { applyRuleToLine, splitSum, summarize, toRow, unsplit } from '../utils/allocation';
 import { appliesToStockType, byPriority, effectiveRule, matchesCriteria, normalizeText as normalize } from '../utils/rules';
 import { StockTypeTree } from '../utils/stockTypes';
+import { getDbConfig } from './dbConfig';
+import { remoteRules } from './remoteRules';
 import { buildRules, buildStockLines, buildStockTypes, ITEMS, LOCATIONS, newLine } from './mockData';
 import type { StockAllocationApi } from './types';
 
@@ -58,11 +60,24 @@ function persist() {
 }
 
 const tree = () => new StockTypeTree(db.stockTypes);
+
+// ---------------------------------------------------------------------------
+// Segmentation rules source: local (browser demo data) or the Vercel database.
+// ---------------------------------------------------------------------------
+
+const remote = () => getDbConfig().mode === 'remote';
+/** Last rules read from the database (remote mode). */
+let remoteCache: SegmentationRule[] = [];
+/** Current rules: always call syncRules() first in remote mode. */
+const rules = (): SegmentationRule[] => (remote() ? remoteCache : db.rules);
+async function syncRules() {
+  if (remote()) remoteCache = await remoteRules.list();
+}
 const linesOf = (itemId: string) => db.lines.filter((l) => l.itemId === itemId);
 const summaries = (): ItemSummary[] => ITEMS.map((item) => summarize(item, linesOf(item.id)));
 const itemOf = (id: string) => ITEMS.find((i) => i.id === id)!;
 const ruleById = (id: string) => {
-  const rule = db.rules.find((r) => r.id === id);
+  const rule = rules().find((r) => r.id === id);
   if (!rule) throw new Error(`Rule ${id} not found`);
   return rule;
 };
@@ -119,7 +134,7 @@ function validateRule(rule: RuleInput) {
 
 /** Splits one stock line as a stock update does: first matching rule, or nothing split. */
 function segmentWithRules(line: StockLine, stats: StockImportResult): StockLine {
-  const rule = effectiveRule(db.rules, itemOf(line.itemId), line);
+  const rule = effectiveRule(rules(), itemOf(line.itemId), line);
   if (!rule) {
     stats.withoutRule++;
     return unsplit(line);
@@ -190,7 +205,12 @@ export const mockApi: StockAllocationApi = {
       db.stockTypes.filter((t) => t.parentId === id).forEach((g) => (g.future = input.future));
       // Purchase orders are only allowed on a future stock type.
       if (!input.future)
-        db.rules.filter((r) => r.purchaseOrders.length && r.stockTypeIds.includes(id)).forEach((r) => (r.purchaseOrders = []));
+      {
+        await syncRules();
+        const affected = rules().filter((r) => r.purchaseOrders.length && r.stockTypeIds.includes(id));
+        affected.forEach((r) => (r.purchaseOrders = []));
+        if (remote()) await Promise.all(affected.map((r) => remoteRules.update(r.id, r)));
+      }
     }
     persist();
     return delay(type);
@@ -200,8 +220,9 @@ export const mockApi: StockAllocationApi = {
     const ids = [id, ...db.stockTypes.filter((t) => t.parentId === id).map((t) => t.id)];
     const usedByStock = db.lines.some((l) => ids.includes(l.stockTypeId) || ids.some((g) => (l.split[g]?.quantity ?? 0) > 0));
     if (usedByStock) return fail('This stock type holds stock: it cannot be deleted');
-    const rules = db.rules.filter((r) => r.stockTypeIds.some((s) => ids.includes(s)) || ids.some((g) => (r.shares[g] ?? 0) > 0));
-    if (rules.length) return fail(`Used by ${rules.length} rule(s): ${rules.map((r) => r.name).join(', ')}`);
+    await syncRules();
+    const using = rules().filter((r) => r.stockTypeIds.some((s) => ids.includes(s)) || ids.some((g) => (r.shares[g] ?? 0) > 0));
+    if (using.length) return fail(`Used by ${using.length} rule(s): ${using.map((r) => r.name).join(', ')}`);
     db.stockTypes = db.stockTypes.filter((t) => !ids.includes(t.id));
     db.lines.forEach((l) => ids.forEach((g) => delete l.split[g]));
     persist();
@@ -222,7 +243,8 @@ export const mockApi: StockAllocationApi = {
   // --- Rules
   async listRules(query) {
     const q = normalize(query.search ?? '');
-    const rules = [...db.rules].sort(byPriority).filter((r) => !query.stockTypeId || appliesToStockType(r, query.stockTypeId));
+    await syncRules();
+    const list0 = [...rules()].sort(byPriority).filter((r) => !query.stockTypeId || appliesToStockType(r, query.stockTypeId));
     // A SKU search also lists every rule matching that item (e.g. its category rule).
     const item = q ? ITEMS.find((i) => i.sku === q) : undefined;
     const matchesItem = (r: SegmentationRule) => !!item && matchesCriteria(item, r.criteria);
@@ -232,21 +254,22 @@ export const mockApi: StockAllocationApi = {
       r.criteria.some(
         (c) => (!query.attribute || c.attribute === query.attribute) && c.values.some((v) => normalize(v).includes(q)),
       );
-    const list = rules.filter((r) => matchesText(r) || ((!query.attribute || query.attribute === 'sku') && matchesItem(r)));
+    const list = list0.filter((r) => matchesText(r) || ((!query.attribute || query.attribute === 'sku') && matchesItem(r)));
     const start = query.page * query.pageSize;
     // Effective rules for the searched item: the ones actually used by its current stock lines.
     const effectiveRuleIds = item
-      ? [...new Set(linesOf(item.id).map((l) => effectiveRule(db.rules, item, l)?.id).filter((id): id is string => !!id))]
+      ? [...new Set(linesOf(item.id).map((l) => effectiveRule(rules(), item, l)?.id).filter((id): id is string => !!id))]
       : [];
     return delay({
       data: list.slice(start, start + query.pageSize).map((rule) => ({ rule, matchedItemCount: matchedItems(rule).length })),
       total: list.length,
-      ruleCount: db.rules.length,
+      ruleCount: rules().length,
       matchedItem: item ? { item, effectiveRuleIds } : undefined,
     });
   },
 
   async getRule(ruleId) {
+    await syncRules();
     return delay(ruleById(ruleId));
   },
 
@@ -256,6 +279,7 @@ export const mockApi: StockAllocationApi = {
     } catch (e) {
       return fail((e as Error).message);
     }
+    if (remote()) return remoteRules.create(input);
     const rule: SegmentationRule = { ...input, id: `rule-${Date.now()}`, priority: db.rules.length + 1, updatedAt: new Date().toISOString() };
     db.rules.push(rule);
     persist();
@@ -268,13 +292,15 @@ export const mockApi: StockAllocationApi = {
     } catch (e) {
       return fail((e as Error).message);
     }
+    if (remote()) return remoteRules.update(ruleId, input);
     Object.assign(ruleById(ruleId), input, { updatedAt: new Date().toISOString() });
     persist();
     return delay(ruleById(ruleId));
   },
 
   async deleteRule(ruleId) {
-    db.rules = db.rules.filter((r) => r.id !== ruleId);
+    if (remote()) await remoteRules.remove(ruleId);
+    else db.rules = db.rules.filter((r) => r.id !== ruleId);
     // Lines keep their split until the next stock update.
     db.lines = db.lines.map((l) => (l.source.type === 'rule' && l.source.ruleId === ruleId ? { ...l, source: { type: 'manual' } } : l));
     renumberRules();
@@ -283,10 +309,17 @@ export const mockApi: StockAllocationApi = {
   },
 
   async moveRule(ruleId, direction) {
-    const rules = db.rules.sort(byPriority);
-    const i = rules.findIndex((r) => r.id === ruleId);
+    await syncRules();
+    const list = [...rules()].sort(byPriority);
+    const i = list.findIndex((r) => r.id === ruleId);
     const j = i + direction;
-    if (i >= 0 && j >= 0 && j < rules.length) [rules[i].priority, rules[j].priority] = [rules[j].priority, rules[i].priority];
+    if (i < 0 || j < 0 || j >= list.length) return delay(undefined);
+    [list[i], list[j]] = [list[j], list[i]];
+    if (remote()) {
+      await remoteRules.reorder(list.map((r) => r.id));
+      return;
+    }
+    list.forEach((r, k) => (r.priority = k + 1));
     renumberRules();
     persist();
     return delay(undefined);
@@ -333,6 +366,7 @@ export const mockApi: StockAllocationApi = {
   },
 
   async applyRulesToCurrentStock(ruleId) {
+    await syncRules();
     const stats = emptyStats();
     const scope = ruleId ? new Set(matchedItems(ruleById(ruleId)).map((i) => i.id)) : undefined;
     db.lines = db.lines.map((l) => {
@@ -346,6 +380,7 @@ export const mockApi: StockAllocationApi = {
 
   // --- Stock & allocation
   async importStock(rows) {
+    await syncRules();
     const stats = emptyStats();
     const t = tree();
     rows.forEach((row, i) => {
@@ -373,10 +408,11 @@ export const mockApi: StockAllocationApi = {
   },
 
   async listItems(query: ItemQuery) {
+    if (query.ruleId) await syncRules();
     let list = summaries().filter((s) => matchesSearch(query.search ?? '')(s.item));
     if (query.warningType) list = list.filter((s) => s.warnings.includes(query.warningType!));
     if (query.ruleId) {
-      const rule = db.rules.find((r) => r.id === query.ruleId);
+      const rule = rules().find((r) => r.id === query.ruleId);
       list = rule ? list.filter((s) => matchesCriteria(s.item, rule.criteria)) : [];
     }
     list = sortSummaries(list, query.sort);
@@ -394,14 +430,15 @@ export const mockApi: StockAllocationApi = {
   },
 
   async getItemDetail(itemId) {
+    await syncRules();
     const item = ITEMS.find((i) => i.id === itemId);
     if (!item) return fail(`Item ${itemId} not found`);
     const lines = linesOf(itemId);
     const ref = (r?: SegmentationRule) => (r ? { id: r.id, name: r.name } : undefined);
     const rows = lines.map((l) => {
       const location = LOCATIONS.find((x) => x.id === l.locationId)!;
-      const rule = l.source.type === 'rule' ? ref(db.rules.find((r) => r.id === (l.source as { ruleId: string }).ruleId)) : undefined;
-      return { ...toRow(location, l), rule, nextRule: ref(effectiveRule(db.rules, item, l)) };
+      const rule = l.source.type === 'rule' ? ref(rules().find((r) => r.id === (l.source as { ruleId: string }).ruleId)) : undefined;
+      return { ...toRow(location, l), rule, nextRule: ref(effectiveRule(rules(), item, l)) };
     });
     return delay({ summary: summarize(item, lines), rows });
   },
@@ -430,3 +467,8 @@ export const mockApi: StockAllocationApi = {
     return delay(undefined);
   },
 };
+
+/** Copies the local (demo) rules into the database, replacing its content. */
+export async function pushLocalRulesToDatabase(config = getDbConfig()) {
+  return remoteRules.replaceAll([...db.rules].sort(byPriority), config);
+}
