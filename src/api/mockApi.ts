@@ -12,12 +12,12 @@ import type {
   StockTypeInput,
 } from '../types';
 import { applyRuleToLine, splitSum, summarize, toRow, unsplit } from '../utils/allocation';
-import { byPriority, effectiveRule, matchesCriteria, normalizeText as normalize } from '../utils/rules';
+import { appliesToStockType, byPriority, effectiveRule, matchesCriteria, normalizeText as normalize } from '../utils/rules';
 import { StockTypeTree } from '../utils/stockTypes';
 import { buildRules, buildStockLines, buildStockTypes, ITEMS, LOCATIONS, newLine } from './mockData';
 import type { StockAllocationApi } from './types';
 
-const STORAGE_KEY = 'stock-allocation:mock:v3';
+const STORAGE_KEY = 'stock-allocation:mock:v4';
 const LATENCY_MS = 120;
 
 const delay = <T>(value: T): Promise<T> =>
@@ -97,16 +97,24 @@ const matchesSearch = (search: string) => {
     !q || [i.name, i.sku, i.category, i.brand, i.season].some((v) => normalize(v).includes(q));
 };
 
+/** Main stock types a rule applies to. */
+const targetedTypes = (rule: Pick<RuleInput, 'stockTypeIds'>) =>
+  tree().mainTypes.filter((m) => rule.stockTypeIds.length === 0 || rule.stockTypeIds.includes(m.id));
+
 function validateRule(rule: RuleInput) {
   const t = tree();
-  const type = t.byId(rule.stockTypeId);
   if (!rule.name.trim()) throw new Error('The rule needs a name');
-  if (!type || type.parentId !== null) throw new Error('Choose a main stock type');
-  if (!t.groupsOf(type.id).length) throw new Error(`${type.label} has no group to split the stock onto`);
+  if (rule.stockTypeIds.some((id) => t.byId(id)?.parentId !== null)) throw new Error('Choose main stock types');
+  const types = targetedTypes(rule);
+  if (!types.some((type) => t.groupsOf(type.id).length)) throw new Error('No targeted stock type has groups to split the stock onto');
   if (!rule.criteria.length || rule.criteria.some((c) => !c.values.length))
     throw new Error('Each criterion needs at least one value');
-  if (rule.purchaseOrders.length && !type.future) throw new Error('Purchase orders are only allowed on future stock types');
-  if (Object.values(rule.shares).reduce((s, v) => s + v, 0) > 100) throw new Error('The sum of percentages cannot exceed 100 %');
+  if (rule.purchaseOrders.length && !types.some((type) => type.future))
+    throw new Error('Purchase orders are only allowed on future stock types');
+  types.forEach((type) => {
+    if (t.groupsOf(type.id).reduce((s, g) => s + (rule.shares[g.id] ?? 0), 0) > 100)
+      throw new Error(`${type.label}: the sum of percentages cannot exceed 100 %`);
+  });
 }
 
 /** Splits one stock line as a stock update does: first matching rule, or nothing split. */
@@ -180,7 +188,9 @@ export const mockApi: StockAllocationApi = {
     if (type.parentId === null) {
       type.future = input.future;
       db.stockTypes.filter((t) => t.parentId === id).forEach((g) => (g.future = input.future));
-      if (!input.future) db.rules.filter((r) => r.stockTypeId === id).forEach((r) => (r.purchaseOrders = []));
+      // Rules restricted to purchase orders need at least one future stock type left.
+      if (!input.future)
+        db.rules.filter((r) => r.purchaseOrders.length && !targetedTypes(r).some((m) => m.future)).forEach((r) => (r.purchaseOrders = []));
     }
     persist();
     return delay(type);
@@ -190,7 +200,7 @@ export const mockApi: StockAllocationApi = {
     const ids = [id, ...db.stockTypes.filter((t) => t.parentId === id).map((t) => t.id)];
     const usedByStock = db.lines.some((l) => ids.includes(l.stockTypeId) || ids.some((g) => (l.split[g]?.quantity ?? 0) > 0));
     if (usedByStock) return fail('This stock type holds stock: it cannot be deleted');
-    const rules = db.rules.filter((r) => ids.includes(r.stockTypeId) || ids.some((g) => (r.shares[g] ?? 0) > 0));
+    const rules = db.rules.filter((r) => r.stockTypeIds.some((s) => ids.includes(s)) || ids.some((g) => (r.shares[g] ?? 0) > 0));
     if (rules.length) return fail(`Used by ${rules.length} rule(s): ${rules.map((r) => r.name).join(', ')}`);
     db.stockTypes = db.stockTypes.filter((t) => !ids.includes(t.id));
     db.lines.forEach((l) => ids.forEach((g) => delete l.split[g]));
@@ -212,7 +222,7 @@ export const mockApi: StockAllocationApi = {
   // --- Rules
   async listRules(query) {
     const q = normalize(query.search ?? '');
-    const rules = [...db.rules].sort(byPriority).filter((r) => !query.stockTypeId || r.stockTypeId === query.stockTypeId);
+    const rules = [...db.rules].sort(byPriority).filter((r) => !query.stockTypeId || appliesToStockType(r, query.stockTypeId));
     // A SKU search also lists every rule matching that item (e.g. its category rule).
     const item = q ? ITEMS.find((i) => i.sku === q) : undefined;
     const matchesItem = (r: SegmentationRule) => !!item && matchesCriteria(item, r.criteria);
@@ -306,11 +316,16 @@ export const mockApi: StockAllocationApi = {
     );
   },
 
-  async listPurchaseOrders(stockTypeId, search) {
+  async listPurchaseOrders(stockTypeIds, search) {
     const q = normalize(search);
     const items = new Map<string, Set<string>>();
     db.lines
-      .filter((l) => l.purchaseOrder && l.stockTypeId === stockTypeId && (!q || normalize(l.purchaseOrder).includes(q)))
+      .filter(
+        (l) =>
+          l.purchaseOrder &&
+          (stockTypeIds.length === 0 || stockTypeIds.includes(l.stockTypeId)) &&
+          (!q || normalize(l.purchaseOrder).includes(q)),
+      )
       .forEach((l) => items.set(l.purchaseOrder!, (items.get(l.purchaseOrder!) ?? new Set()).add(l.itemId)));
     return delay(
       [...items.entries()].map(([value, set]) => ({ value, itemCount: set.size })).sort((a, b) => a.value.localeCompare(b.value)),

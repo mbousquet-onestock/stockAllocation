@@ -155,7 +155,7 @@ export interface Criterion {
 }
 
 /**
- * Segmentation rule, applied when the stock of a matching item is updated on `stockTypeId`.
+ * Segmentation rule, applied when the stock of a matching item is updated on one of `stockTypeIds`.
  * All criteria must match (AND); several values in one criterion are alternatives (OR).
  * When several rules match, the one with the lowest priority number wins.
  */
@@ -165,13 +165,13 @@ export interface SegmentationRule {
   priority: number;
   enabled: boolean;
   criteria: Criterion[];
-  /** Main stock type whose stock is split. */
-  stockTypeId: string;
-  /** Future stock types only: restricts the rule to these purchase orders (empty = any). */
+  /** Main stock types whose stock is split (empty = all main stock types). */
+  stockTypeIds: string[];
+  /** Restricts the rule to stock lines with these purchase orders, i.e. future stock only (empty = any). */
   purchaseOrders: string[];
   /** Empty = all stock locations. */
   locationIds: string[];
-  /** Percentage (0-100) of the stock moved to each group of the stock type. */
+  /** Percentage (0-100) of the stock moved to each group, for the groups of every targeted stock type. */
   shares: Record<string, number>;
   thresholds: Record<string, number | null>;
   period: ActivationPeriod;

@@ -17,6 +17,9 @@ export const appliesToLocation = (rule: SegmentationRule, locationId: string) =>
 export const appliesToPurchaseOrder = (rule: SegmentationRule, po: string | null) =>
   rule.purchaseOrders.length === 0 || (po !== null && rule.purchaseOrders.some((p) => norm(p) === norm(po)));
 
+export const appliesToStockType = (rule: SegmentationRule, stockTypeId: string) =>
+  rule.stockTypeIds.length === 0 || rule.stockTypeIds.includes(stockTypeId);
+
 export const byPriority = (a: SegmentationRule, b: SegmentationRule) => a.priority - b.priority;
 
 type LineKey = Pick<StockLine, 'locationId' | 'stockTypeId' | 'purchaseOrder'>;
@@ -24,7 +27,7 @@ type LineKey = Pick<StockLine, 'locationId' | 'stockTypeId' | 'purchaseOrder'>;
 /** Does the rule apply to this item's stock line? */
 export const ruleMatchesLine = (rule: SegmentationRule, item: Item, line: LineKey) =>
   rule.enabled &&
-  rule.stockTypeId === line.stockTypeId &&
+  appliesToStockType(rule, line.stockTypeId) &&
   matchesCriteria(item, rule.criteria) &&
   appliesToLocation(rule, line.locationId) &&
   appliesToPurchaseOrder(rule, line.purchaseOrder);
@@ -36,8 +39,8 @@ export function effectiveRule(rules: SegmentationRule[], item: Item, line: LineK
 
 /** Editable part of a rule. */
 export function toRuleInput(rule: SegmentationRule): RuleInput {
-  const { name, enabled, criteria, stockTypeId, purchaseOrders, locationIds, shares, thresholds, period } = rule;
-  return { name, enabled, criteria, stockTypeId, purchaseOrders, locationIds, shares, thresholds, period };
+  const { name, enabled, criteria, stockTypeIds, purchaseOrders, locationIds, shares, thresholds, period } = rule;
+  return { name, enabled, criteria, stockTypeIds, purchaseOrders, locationIds, shares, thresholds, period };
 }
 
 export { norm as normalizeText };

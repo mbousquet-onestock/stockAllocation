@@ -20,6 +20,8 @@ npm run build      # typecheck + build de production
   La première règle active (par priorité) correspondant à l'article, au type, à l'entrepôt et au purchase order répartit
   alors la quantité **en pourcentage** sur les groupes du type ; le reste (et l'arrondi) reste sur le type principal.
   Sans règle, tout reste sur le type principal.
+- Une règle cible un ou plusieurs types de stock principaux, **tous par défaut** (y compris ceux ajoutés plus tard) ;
+  la répartition en % est saisie pour les groupes de chaque type ciblé (copiable d'un type à l'autre par suffixe de groupe).
 - Critères des règles : ET entre caractéristiques (SKU, catégorie, marque, saison), OU entre les valeurs d'une même
   caractéristique. Restriction par purchase order uniquement sur les types de stock futurs.
 

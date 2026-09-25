@@ -25,28 +25,36 @@ type ModalState =
 
 function RuleAllocation({ rule }: { rule: SegmentationRule }) {
   const tree = useStockTypes();
-  const main = tree.byId(rule.stockTypeId);
-  const groups = tree.groupsOf(rule.stockTypeId);
-  const total = groups.reduce((s, g) => s + (rule.shares[g.id] ?? 0), 0);
-  if (!main) return <span className="text-error small">Unknown stock type</span>;
+  const types = tree.mainTypes.filter(
+    (t) => (rule.stockTypeIds.length === 0 || rule.stockTypeIds.includes(t.id)) && tree.groupsOf(t.id).length > 0,
+  );
+  if (!types.length) return <span className="muted small">Nothing to split</span>;
   return (
-    <div className="rule-alloc">
-      <div className="rule-alloc__values">
-        {groups.map((g, i) => (
-          <span key={g.id} title={g.label}>
-            <i className={`legend seg-${i % 4}`} />
-            {g.code} {rule.shares[g.id] ?? 0}%
-          </span>
-        ))}
-        {total < 100 && (
-          <span className="muted" title={`Stays on ${main.label}`}>
-            <i className="legend seg-rest" />
-            {main.code} {100 - total}%
-          </span>
-        )}
-      </div>
-      <SplitBar main={main} groups={groups} quantities={rule.shares} total={100} mini />
-    </div>
+    <>
+      {types.map((main) => {
+        const groups = tree.groupsOf(main.id);
+        const total = groups.reduce((s, g) => s + (rule.shares[g.id] ?? 0), 0);
+        return (
+          <div className="rule-alloc" key={main.id}>
+            <div className="rule-alloc__values">
+              {groups.map((g, i) => (
+                <span key={g.id} title={g.label}>
+                  <i className={`legend seg-${i % 4}`} />
+                  {g.code} {rule.shares[g.id] ?? 0}%
+                </span>
+              ))}
+              {total < 100 && (
+                <span className="muted" title={`Stays on ${main.label}`}>
+                  <i className="legend seg-rest" />
+                  {main.code} {100 - total}%
+                </span>
+              )}
+            </div>
+            <SplitBar main={main} groups={groups} quantities={rule.shares} total={100} mini />
+          </div>
+        );
+      })}
+    </>
   );
 }
 
@@ -192,7 +200,8 @@ export function RulesPage() {
             {rows.map(({ rule, matchedItemCount }) => {
               const active = rule.period.type === 'always' || (rule.period.start <= today && today <= rule.period.end);
               const isEffective = !!matched?.effectiveRuleIds.includes(rule.id);
-              const type = tree.byId(rule.stockTypeId);
+              const types = rule.stockTypeIds.map((id) => tree.byId(id)).filter((t) => !!t);
+              const anyFuture = rule.stockTypeIds.length === 0 ? tree.mainTypes.some((t) => t.future) : types.some((t) => t!.future);
               return (
                 <tr
                   key={rule.id}
@@ -237,7 +246,15 @@ export function RulesPage() {
                   </td>
                   <td>
                     <div className="stock-type-cell">
-                      {type?.label ?? rule.stockTypeId} <code>{type?.code}</code>
+                      {rule.stockTypeIds.length === 0 ? (
+                        <strong>All stock types</strong>
+                      ) : (
+                        types.map((t) => (
+                          <div key={t!.id}>
+                            {t!.label} <code>{t!.code}</code>
+                          </div>
+                        ))
+                      )}
                     </div>
                     {rule.purchaseOrders.length > 0 && (
                       <div className="criteria-chips">
@@ -248,7 +265,7 @@ export function RulesPage() {
                         ))}
                       </div>
                     )}
-                    {type?.future && rule.purchaseOrders.length === 0 && <span className="muted small">Any purchase order</span>}
+                    {anyFuture && rule.purchaseOrders.length === 0 && <span className="muted small">Any purchase order</span>}
                   </td>
                   <td>{locationNames(rule.locationIds, locations.data ?? [])}</td>
                   <td>

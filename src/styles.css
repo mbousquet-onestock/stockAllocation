@@ -299,3 +299,8 @@ main { padding: 0 40px 100px; }
 .col-item { min-width: 280px; }
 .col-rule { min-width: 210px; }
 .table td .item-identity__name { font-size: 14px; }
+.split-type { margin-bottom: 10px; }
+.split-type__header { display: flex; align-items: center; gap: 8px; }
+.split-type__header + .segment-grid { margin-top: 8px; }
+.split-type__footer { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); display: flex; flex-direction: column; gap: 6px; }
+.rule-alloc + .rule-alloc { margin-top: 8px; }
