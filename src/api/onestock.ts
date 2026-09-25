@@ -25,12 +25,10 @@ export interface OnestockConfig {
   stockRequest: string;
   /** Read the item stock from the API (stock_export). */
   useForStock: boolean;
-  /** import.incremental of stock_import (false: the quantities sent replace the current ones). */
-  incrementalImport: boolean;
 }
 
 const KEY = 'stock-allocation:onestock-config';
-export const DEFAULT_ONESTOCK_CONFIG: OnestockConfig = { url: '', siteId: '', token: '', method: 'GET', language: 'fr', useForCategories: true, useForLocations: true, useForItems: true, stockRequest: '', useForStock: true, incrementalImport: false };
+export const DEFAULT_ONESTOCK_CONFIG: OnestockConfig = { url: '', siteId: '', token: '', method: 'GET', language: 'fr', useForCategories: true, useForLocations: true, useForItems: true, stockRequest: '', useForStock: true };
 
 export function getOnestockConfig(): OnestockConfig {
   try {
@@ -415,7 +413,8 @@ export async function pushStock(records: StockImportRecord[], config = getOnesto
     await callOnestock(
       '/stock_import',
       config,
-      { import: { incremental: config.incrementalImport }, stocks: records.slice(i, i + IMPORT_BATCH) },
+      // Always a non incremental import: the quantities sent are absolute.
+      { import: { incremental: false }, stocks: records.slice(i, i + IMPORT_BATCH) },
       'PATCH',
     );
     calls++;

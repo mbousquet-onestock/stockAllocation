@@ -87,8 +87,8 @@ défaut). Quand l'API est configurée, les valeurs du critère **Category** de l
   Pour mettre les articles avec du stock en premier, un appel `stock_export` sans `item_filter` récupère tout l'export
   (cache 2 min) ; si l'API le refuse, le stock est demandé par lots d'ids.
 - Les **modifications de stock** sont renvoyées avec `PATCH {{url}}/stock_import`
-  (`{ import: { incremental }, stocks: [{ item_id, endpoint_id, quantity, type, purchase_order_number, eta_start, eta_end }] }`,
-  `incremental` réglable dans les paramètres, `false` par défaut), par lots de 500 enregistrements :
+  (`{ import: { incremental: false }, stocks: [{ item_id, endpoint_id, quantity, type, purchase_order_number, eta_start,
+  eta_end }] }`, toujours non incrémental : quantités absolues), par lots de 500 enregistrements :
   - modification manuelle d'une ligne OneStock dans le détail article ;
   - **Apply rules → OneStock** (détail article, articles sélectionnés, ou bouton *Apply rules* de la page des règles pour
     tous les articles en stock) : aperçu avant / après des lignes que les règles re-segmentent, puis envoi.

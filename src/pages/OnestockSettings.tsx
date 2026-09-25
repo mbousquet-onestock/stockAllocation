@@ -217,16 +217,6 @@ export function OnestockSettings() {
           onChange={(useForStock) => set({ useForStock })}
           label="Read the item stock from OneStock (stock_export) in the allocation pages"
         />
-        <Checkbox
-          checked={config.incrementalImport}
-          onChange={(incrementalImport) => set({ incrementalImport })}
-          label={
-            <>
-              Incremental stock import (<code>import.incremental</code> of stock_import) — unchecked: the quantities sent replace the
-              current ones
-            </>
-          }
-        />
         <div className="form-row">
           <label className="field">
             <span className="field__label">Stock request — {'{{stock_request}}'} (request_name of stock_export)</span>
