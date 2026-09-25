@@ -59,7 +59,11 @@ export function EditStockLineModal({
         period,
         split: Object.fromEntries(groups.map((g) => [g.id, { quantity: toInt(draft[g.id].quantity) ?? 0, threshold: toInt(draft[g.id].threshold) }])),
       });
-      notify(`Segmentation updated for ${location.name} · ${type?.code}`);
+      notify(
+        line.source.type === 'onestock'
+          ? `Segmentation sent to OneStock for ${location.name} · ${type?.code}`
+          : `Segmentation updated for ${location.name} · ${type?.code}`,
+      );
       onSaved();
     } catch (e) {
       notify((e as Error).message, 'error');
@@ -103,6 +107,13 @@ export function EditStockLineModal({
         </div>
       </div>
 
+      {line.source.type === 'onestock' && (
+        <p className="panel small">
+          Stock read from OneStock: saving sends the new split with <code>PATCH stock_import</code>
+          {line.eta ? '' : tree.byId(line.stockTypeId)?.future ? ' — no ETA known for this purchase order, it cannot be sent.' : ''}. The
+          activation period is not sent.
+        </p>
+      )}
       <h3 className="section-title">Activation period</h3>
       <PeriodField value={period} onChange={setPeriod} />
 

@@ -88,8 +88,10 @@ export interface StockLine {
   split: Record<string, GroupAllocation>; // by group stock type id
   period: ActivationPeriod;
   source: AllocationSource;
-  /** Future stock: expected arrival (unix seconds). */
+  /** Future stock: expected arrival (unix seconds), as read from OneStock for the purchase order. */
   eta?: { start: number; end: number };
+  /** OneStock lines: stock type code as written in OneStock, by stock type id (e.g. container_B → "Container_B"). */
+  remoteTypes?: Record<string, string>;
 }
 
 /** Quantities by stock type id (main types = remaining after split, groups = split quantities). */
@@ -120,8 +122,8 @@ export interface StockLineRow {
 export interface ItemDetail {
   summary: ItemSummary;
   rows: StockLineRow[];
-  /** Stock read from the OneStock API: lines cannot be edited here. */
-  readOnly?: boolean;
+  /** Stock read from the OneStock API: changes are sent back with stock_import. */
+  onestock?: boolean;
   /** Information about the data (e.g. unknown stock types in the OneStock answer). */
   notices?: string[];
 }
@@ -234,4 +236,24 @@ export interface StockImportResult {
   byRule: number;
   withoutRule: number;
   errors: string[];
+}
+
+/** One stock line of OneStock re-segmented by a rule (preview before sending it with stock_import). */
+export interface OnestockRuleChange {
+  item: Item;
+  location: StockLocation;
+  before: StockLine;
+  after: StockLine;
+  rule: { id: string; name: string };
+  /** Why the line cannot be sent (e.g. future stock without ETA). */
+  blocked?: string;
+}
+
+export interface OnestockRulePreview {
+  changes: OnestockRuleChange[];
+  /** Lines already split as the rule says. */
+  unchanged: number;
+  /** Lines without applicable rule (left as they are). */
+  withoutRule: number;
+  itemCount: number;
 }

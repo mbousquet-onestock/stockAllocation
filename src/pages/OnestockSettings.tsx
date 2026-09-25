@@ -139,7 +139,7 @@ export function OnestockSettings() {
           <h2>OneStock API</h2>
           <p className="muted">
             Access to the OneStock API, used to list the <strong>categories</strong> (<code>{'{{url}}'}/categories</code>) the{' '}
-            <strong>items</strong> (<code>{'{{url}}'}/v3/items</code>) and the <strong>stock</strong> (<code>{'{{url}}'}/stock_export</code>) and the <strong>stock locations</strong> (<code>{'{{url}}'}/endpoints</code>) of the segmentation rules, with <code>site_id</code> and{' '}
+            <strong>items</strong> (<code>{'{{url}}'}/v3/items</code>) and the <strong>stock</strong> (read: <code>{'{{url}}'}/stock_export</code>, write: <code>PATCH {'{{url}}'}/stock_import</code>) and the <strong>stock locations</strong> (<code>{'{{url}}'}/endpoints</code>) of the segmentation rules, with <code>site_id</code> and{' '}
             <code>token</code>. The browser cannot call the API
             directly: the calls go through the proxy of the application (<code>{proxy.apiUrl || '/api'}/onestock</code>).
           </p>
@@ -216,6 +216,16 @@ export function OnestockSettings() {
           checked={config.useForStock}
           onChange={(useForStock) => set({ useForStock })}
           label="Read the item stock from OneStock (stock_export) in the allocation pages"
+        />
+        <Checkbox
+          checked={config.incrementalImport}
+          onChange={(incrementalImport) => set({ incrementalImport })}
+          label={
+            <>
+              Incremental stock import (<code>import.incremental</code> of stock_import) — unchecked: the quantities sent replace the
+              current ones
+            </>
+          }
         />
         <div className="form-row">
           <label className="field">

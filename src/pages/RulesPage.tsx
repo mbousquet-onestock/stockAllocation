@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { getDbConfig } from '../api/dbConfig';
-import { categoryLabel } from '../api/onestock';
+import { categoryLabel, useOnestockStock } from '../api/onestock';
+import { ApplyRulesOnestockModal } from '../features/ApplyRulesOnestockModal';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { useDataVersion } from '../components/DataVersion';
 import { ArrowDownIcon, ArrowUpIcon, CopyIcon, DownloadIcon, PlayIcon, TrashIcon } from '../components/Icons';
@@ -22,6 +23,7 @@ type ModalState =
   | { type: 'edit'; rule?: SegmentationRule; initial?: Partial<RuleInput> }
   | { type: 'delete'; rule: SegmentationRule }
   | { type: 'applyAll' }
+  | { type: 'applyOnestock' }
   | { type: 'import' }
   | null;
 
@@ -148,7 +150,9 @@ export function RulesPage() {
         <button type="button" className="btn btn--secondary" onClick={() => setModal({ type: 'import' })}>
           <DownloadIcon /> Stock import
         </button>
-        <button type="button" className="btn btn--secondary" onClick={() => setModal({ type: 'applyAll' })} title="Re-segment the current stock with the rules">
+        <button type="button" className="btn btn--secondary" onClick={() => setModal({ type: useOnestockStock() ? 'applyOnestock' : 'applyAll' })}
+          title={useOnestockStock() ? 'Re-segment the OneStock stock with the rules (preview, then stock_import)' : 'Re-segment the current stock with the rules'}
+        >
           <PlayIcon /> Apply rules
         </button>
       </div>
@@ -352,6 +356,15 @@ export function RulesPage() {
             Delete <strong>{modal.rule.name}</strong>? The current allocations keep their quantities until the next stock import.
           </p>
         </ConfirmModal>
+      )}
+      {modal?.type === 'applyOnestock' && (
+        <ApplyRulesOnestockModal
+          onClose={() => setModal(null)}
+          onDone={() => {
+            setModal(null);
+            bump();
+          }}
+        />
       )}
       {modal?.type === 'applyAll' && (
         <ConfirmModal

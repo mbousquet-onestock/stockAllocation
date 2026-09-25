@@ -25,10 +25,12 @@ export interface OnestockConfig {
   stockRequest: string;
   /** Read the item stock from the API (stock_export). */
   useForStock: boolean;
+  /** import.incremental of stock_import (false: the quantities sent replace the current ones). */
+  incrementalImport: boolean;
 }
 
 const KEY = 'stock-allocation:onestock-config';
-export const DEFAULT_ONESTOCK_CONFIG: OnestockConfig = { url: '', siteId: '', token: '', method: 'GET', language: 'fr', useForCategories: true, useForLocations: true, useForItems: true, stockRequest: '', useForStock: true };
+export const DEFAULT_ONESTOCK_CONFIG: OnestockConfig = { url: '', siteId: '', token: '', method: 'GET', language: 'fr', useForCategories: true, useForLocations: true, useForItems: true, stockRequest: '', useForStock: true, incrementalImport: false };
 
 export function getOnestockConfig(): OnestockConfig {
   try {
@@ -61,6 +63,7 @@ export async function callOnestock<T = unknown>(
   path: string,
   config = getOnestockConfig(),
   params?: Record<string, unknown>,
+  method: 'GET' | 'POST' | 'PATCH' = config.method,
 ): Promise<T> {
   const proxy = getDbConfig();
   const base = proxy.apiUrl.replace(/\/+$/, '') || '/api';
@@ -69,7 +72,7 @@ export async function callOnestock<T = unknown>(
     res = await fetch(`${base}/onestock`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(proxy.apiKey ? { 'x-api-key': proxy.apiKey } : {}) },
-      body: JSON.stringify({ url: config.url.trim(), path, method: config.method, site_id: config.siteId.trim(), token: config.token.trim(), params }),
+      body: JSON.stringify({ url: config.url.trim(), path, method, site_id: config.siteId.trim(), token: config.token.trim(), params }),
     });
   } catch {
     throw new Error(`Proxy unreachable (${base}/onestock)`);
@@ -390,4 +393,38 @@ export async function fetchStockTotals(itemIds: string[], config = getOnestockCo
   records.forEach((r) => totals.set(r.item_id, (totals.get(r.item_id) ?? 0) + r.quantity));
   stockTotals = { at: Date.now(), totals, key };
   return totals;
+}
+
+/** One line of stock_import: absolute quantity of an item, in an endpoint, on a stock type (segment). */
+export interface StockImportRecord {
+  item_id: string;
+  endpoint_id: string;
+  quantity: number;
+  type: string;
+  purchase_order_number?: string;
+  eta_start?: number;
+  eta_end?: number;
+}
+
+const IMPORT_BATCH = 500;
+
+/** PATCH stock_import by batches, then forgets the cached stock of these items. */
+export async function pushStock(records: StockImportRecord[], config = getOnestockConfig()): Promise<{ sent: number; calls: number }> {
+  let calls = 0;
+  for (let i = 0; i < records.length; i += IMPORT_BATCH) {
+    await callOnestock(
+      '/stock_import',
+      config,
+      { import: { incremental: config.incrementalImport }, stocks: records.slice(i, i + IMPORT_BATCH) },
+      'PATCH',
+    );
+    calls++;
+  }
+  invalidateStock(records.map((r) => r.item_id));
+  return { sent: records.length, calls };
+}
+
+export function invalidateStock(itemIds: string[]) {
+  itemIds.forEach((id) => stockCache.delete(id));
+  stockTotals = undefined;
 }

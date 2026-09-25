@@ -86,9 +86,19 @@ défaut). Quand l'API est configurée, les valeurs du critère **Category** de l
   s'appliquerait. Les types non configurés sont signalés et ignorés.
   Pour mettre les articles avec du stock en premier, un appel `stock_export` sans `item_filter` récupère tout l'export
   (cache 2 min) ; si l'API le refuse, le stock est demandé par lots d'ids.
+- Les **modifications de stock** sont renvoyées avec `PATCH {{url}}/stock_import`
+  (`{ import: { incremental }, stocks: [{ item_id, endpoint_id, quantity, type, purchase_order_number, eta_start, eta_end }] }`,
+  `incremental` réglable dans les paramètres, `false` par défaut), par lots de 500 enregistrements :
+  - modification manuelle d'une ligne OneStock dans le détail article ;
+  - **Apply rules → OneStock** (détail article, articles sélectionnés, ou bouton *Apply rules* de la page des règles pour
+    tous les articles en stock) : aperçu avant / après des lignes que les règles re-segmentent, puis envoi.
+  - Chaque ligne envoie le type principal (quantité − répartition) et chacun de ses groupes. Le code du type est repris
+    tel que lu au GET (`Container`, `Container_B`…), et pour le stock futur le `purchase_order_number` et les
+    `eta_start` / `eta_end` lus au GET sont renvoyés ; une ligne future sans ETA connue n'est pas envoyée.
 - L'appel passe par le proxy `POST /api/onestock` (fonction Vercel) : le navigateur ne peut pas appeler l'API OneStock
-  directement (CORS). Le proxy n'autorise que les chemins listés (`/categories`, `/endpoints`, `/v3/items`, `/stock_export`), ne relaie que `pagination`, `item_ids`,
-  `request_name` et `item_filter` en plus de
+  directement (CORS). Le proxy n'autorise que les chemins listés (`/categories`, `/endpoints`, `/v3/items`, `/stock_export`, `/stock_import` — PATCH uniquement sur ce dernier,
+  5 000 enregistrements maximum par appel), ne relaie que `pagination`, `item_ids`, `request_name`, `item_filter`,
+  `import` et `stocks` en plus de
   `site_id` / `token`, et impose https.
 - La réponse est un arbre `{ category: { sub_category: [{ id, display_info: { <langue>: { name } }, sub_category? }] } }` :
   chaque nœud devient une catégorie (libellé « Parent › Enfant » pour les niveaux inférieurs), nommée dans la langue par

@@ -5,6 +5,7 @@ import { useDataVersion } from '../components/DataVersion';
 import { ArrowBackIcon, WarningIcon } from '../components/Icons';
 import { useStockTypes } from '../components/StockTypes';
 import { ItemIdentity, Pagination, QtyBadge, SortHeader, Spinner } from '../components/ui';
+import { ApplyRulesOnestockModal } from '../features/ApplyRulesOnestockModal';
 import { EditStockLineModal } from '../features/EditStockLineModal';
 import { RuleEditorModal } from '../features/RuleEditorModal';
 import { SplitBar } from '../features/SplitBar';
@@ -33,6 +34,7 @@ export function ItemDetailPage() {
   const [editing, setEditing] = useState<StockLineRow | null>(null);
   const [creatingRule, setCreatingRule] = useState(false);
   const [showAllFeatures, setShowAllFeatures] = useState(false);
+  const [applying, setApplying] = useState(false);
   const today = todayIso();
   const navigate = useNavigate();
   // Go back to the list keeping its filters, or to the list when opened directly.
@@ -83,7 +85,7 @@ export function ItemDetailPage() {
     );
   if (!detail.data) return <Spinner />;
 
-  const { summary, readOnly, notices = [] } = detail.data;
+  const { summary, onestock, notices = [] } = detail.data;
   const hasEta = detail.data.rows.some((r) => r.line.eta);
   const item = summary.item;
   const pageRows = rows.slice(page * pageSize, (page + 1) * pageSize);
@@ -111,6 +113,11 @@ export function ItemDetailPage() {
         <button type="button" className="btn btn--primary" onClick={() => setCreatingRule(true)}>
           Create a rule for this item
         </button>
+        {detail.data.onestock && (
+          <button type="button" className="btn btn--secondary" onClick={() => setApplying(true)}>
+            Apply rules → OneStock
+          </button>
+        )}
       </div>
 
       <div className="kpis">
@@ -186,7 +193,7 @@ export function ItemDetailPage() {
       <div className="card page">
         <div className="list-header">
           <strong>Stock lines</strong>
-          {readOnly && <span className="badge badge--rule">Stock from OneStock (stock_export) · read only</span>}
+          {onestock && <span className="badge badge--rule">Stock from OneStock · changes are sent with stock_import</span>}
           {typeFilter && (
             <button type="button" className="chip chip--selected" onClick={() => setTypeFilter('')}>
               {tree.label(typeFilter)} ×
@@ -236,9 +243,9 @@ export function ItemDetailPage() {
                 return (
                   <tr
                     key={r.line.id}
-                    className={readOnly ? '' : 'is-clickable'}
-                    onClick={() => !readOnly && setEditing(r)}
-                    title={readOnly ? 'Stock from OneStock: read only' : 'Edit segmentation'}
+                    className="is-clickable"
+                    onClick={() => setEditing(r)}
+                    title={onestock ? 'Edit segmentation (sent to OneStock)' : 'Edit segmentation'}
                   >
                     <td>
                       <div>{r.location.name}</div>
@@ -306,6 +313,16 @@ export function ItemDetailPage() {
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
+            bump();
+          }}
+        />
+      )}
+      {applying && (
+        <ApplyRulesOnestockModal
+          itemIds={[item.id]}
+          onClose={() => setApplying(false)}
+          onDone={() => {
+            setApplying(false);
             bump();
           }}
         />

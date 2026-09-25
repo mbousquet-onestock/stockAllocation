@@ -4,6 +4,7 @@ import type {
   ItemDetail,
   ItemQuery,
   ItemSummary,
+  OnestockRulePreview,
   Page,
   RuleInput,
   RulePage,
@@ -58,7 +59,11 @@ export interface StockAllocationApi {
   getWarningSummary(): Promise<WarningSummary[]>;
   getItemDetail(itemId: string): Promise<ItemDetail>;
   listLocations(): Promise<StockLocation[]>;
-  /** Manual override of the split of one stock line. */
+  /** OneStock stock: lines the rules would re-segment (all items with stock when itemIds is omitted). */
+  previewOnestockRules(itemIds?: string[]): Promise<OnestockRulePreview>;
+  /** Sends stock lines to OneStock (PATCH stock_import). */
+  pushOnestockLines(lines: StockLine[]): Promise<{ sent: number; calls: number }>;
+  /** Manual override of the split of one stock line (sent to OneStock for OneStock lines). */
   updateStockLine(line: StockLine): Promise<StockLine>;
   searchItems(search: string, limit?: number): Promise<Item[]>;
 

@@ -1,4 +1,4 @@
-import type { StockRecord } from '../api/onestock';
+import type { StockImportRecord, StockRecord } from '../api/onestock';
 import type { StockLine } from '../types';
 import type { StockTypeTree } from './stockTypes';
 
@@ -32,9 +32,11 @@ export function recordsToLines(records: StockRecord[], tree: StockTypeTree): { l
         split: Object.fromEntries(tree.groupsOf(main.id).map((g) => [g.id, { quantity: 0, threshold: null }])),
         period: { type: 'always' },
         source: { type: 'onestock' },
+        remoteTypes: {},
       };
       lines.set(id, line);
     }
+    line.remoteTypes![type.id] = r.type;
     const q = Number(r.quantity) || 0;
     line.quantity += q;
     if (type.parentId) line.split[type.id] = { quantity: (line.split[type.id]?.quantity ?? 0) + q, threshold: null };
@@ -45,4 +47,48 @@ export function recordsToLines(records: StockRecord[], tree: StockTypeTree): { l
     }
   });
   return { lines: [...lines.values()], unknownTypes: [...unknown] };
+}
+
+/**
+ * OneStock code of a stock type for a line: the code read from OneStock when known, else derived from any code read
+ * for the same line (e.g. "Container_A" read for container_A → main "Container", group container_B → "Container_B"),
+ * else the code of the settings.
+ */
+function remoteCode(line: StockLine, typeId: string, tree: StockTypeTree): string {
+  const known = line.remoteTypes?.[typeId];
+  if (known) return known;
+  const main = tree.byId(line.stockTypeId)!;
+  const target = tree.byId(typeId)!;
+  const suffix = (code: string) => (code.toLowerCase().startsWith(main.code.toLowerCase()) ? code.slice(main.code.length) : undefined);
+  const targetSuffix = suffix(target.code);
+  for (const [id, remote] of Object.entries(line.remoteTypes ?? {})) {
+    const ownSuffix = suffix(tree.byId(id)?.code ?? '');
+    if (targetSuffix === undefined || ownSuffix === undefined) continue;
+    if (!remote.toLowerCase().endsWith(ownSuffix.toLowerCase())) continue;
+    return remote.slice(0, remote.length - ownSuffix.length) + targetSuffix;
+  }
+  return target.code;
+}
+
+/**
+ * stock_import records of a line: the main type keeps quantity − split, each group gets its split quantity.
+ * Future stock carries the purchase order and the ETA read at the GET.
+ */
+export function lineToRecords(line: StockLine, tree: StockTypeTree): StockImportRecord[] {
+  const main = tree.byId(line.stockTypeId);
+  if (!main) return [];
+  const extra = {
+    ...(line.purchaseOrder ? { purchase_order_number: line.purchaseOrder } : {}),
+    ...(line.eta ? { eta_start: line.eta.start, eta_end: line.eta.end } : {}),
+  };
+  const groups = tree.groupsOf(main.id);
+  const split = groups.reduce((s, g) => s + (line.split[g.id]?.quantity ?? 0), 0);
+  const record = (typeId: string, quantity: number): StockImportRecord => ({
+    item_id: line.itemId,
+    endpoint_id: line.locationId,
+    quantity,
+    type: remoteCode(line, typeId, tree),
+    ...extra,
+  });
+  return [record(main.id, line.quantity - split), ...groups.map((g) => record(g.id, line.split[g.id]?.quantity ?? 0))];
 }

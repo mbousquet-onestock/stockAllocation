@@ -1,6 +1,7 @@
 import { itemAttribute } from '../config/attributes';
 import type {
   Item,
+  OnestockRulePreview,
   StockLocation,
   ItemQuery,
   ItemSortKey,
@@ -22,6 +23,7 @@ import {
   fetchCategories,
   fetchStock,
   fetchStockTotals,
+  pushStock,
   fetchEndpoints,
   fetchItemDetails,
   fetchItemIndex,
@@ -31,7 +33,7 @@ import {
   useOnestockItems,
   useOnestockStock,
 } from './onestock';
-import { recordsToLines } from '../utils/onestockStock';
+import { lineToRecords, recordsToLines } from '../utils/onestockStock';
 import { remoteRules } from './remoteRules';
 import { buildRules, buildStockLines, buildStockTypes, ITEMS, LOCATIONS, newLine } from './mockData';
 import type { StockAllocationApi } from './types';
@@ -75,6 +77,8 @@ function persist() {
     /* ignore */
   }
 }
+// Keep the initial demo data from the first load on.
+persist();
 
 const tree = () => new StockTypeTree(db.stockTypes);
 
@@ -539,7 +543,7 @@ export const mockApi: StockAllocationApi = {
     const notices = stock.unknownTypes.length
       ? [`Stock types not configured in Settings → Stock types, ignored: ${stock.unknownTypes.join(', ')}`]
       : [];
-    return delay({ summary: summarize(item, lines), rows, readOnly: stock.onestock, notices });
+    return delay({ summary: summarize(item, lines), rows, onestock: stock.onestock, notices });
   },
 
   async listLocations() {
@@ -548,7 +552,46 @@ export const mockApi: StockAllocationApi = {
     return delay(LOCATIONS);
   },
 
+  async previewOnestockRules(itemIds) {
+    await Promise.all([syncRules(), loadCatalog()]);
+    const ids = itemIds ?? [...(await fetchStockTotals(catalog().map((i) => i.id))).entries()].filter(([, q]) => q > 0).map(([id]) => id);
+    const [stock, locations] = await Promise.all([stockOf(ids), allLocations()]);
+    const items = useOnestockItems() ? await fetchItemDetails([...new Set(stock.lines.map((l) => l.itemId))]) : [];
+    const itemFor = (id: string) => items.find((i) => i.id === id) ?? itemOf(id);
+    const t = tree();
+    const preview: OnestockRulePreview = { changes: [], unchanged: 0, withoutRule: 0, itemCount: ids.length };
+    stock.lines.forEach((line) => {
+      const item = itemFor(line.itemId);
+      const rule = effectiveRule(rules(), item, line);
+      if (!rule) return void preview.withoutRule++;
+      const after = applyRuleToLine(line, rule, t);
+      const same = Object.keys(after.split).every((g) => (after.split[g]?.quantity ?? 0) === (line.split[g]?.quantity ?? 0));
+      if (same) return void preview.unchanged++;
+      const future = t.byId(line.stockTypeId)?.future;
+      preview.changes.push({
+        item,
+        location: locations.find((l) => l.id === line.locationId) ?? { id: line.locationId, code: line.locationId, name: line.locationId },
+        before: line,
+        after,
+        rule: { id: rule.id, name: rule.name },
+        blocked: future && !line.eta ? 'Future stock without ETA in OneStock: not sent' : undefined,
+      });
+    });
+    return preview;
+  },
+
+  async pushOnestockLines(lines) {
+    const t = tree();
+    return pushStock(lines.flatMap((l) => lineToRecords(l, t)));
+  },
+
   async updateStockLine(line) {
+    if (line.source.type === 'onestock' || line.remoteTypes) {
+      if (splitSum(line) > line.quantity) return fail('The split exceeds the stock quantity');
+      if (tree().byId(line.stockTypeId)?.future && !line.eta) return fail('Future stock without ETA: it cannot be sent to OneStock');
+      await pushStock(lineToRecords(line, tree()));
+      return line;
+    }
     const idx = db.lines.findIndex((l) => l.id === line.id);
     if (idx < 0) return fail('Stock line not found');
     const current = db.lines[idx];

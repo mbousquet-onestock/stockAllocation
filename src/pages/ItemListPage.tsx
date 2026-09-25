@@ -5,6 +5,8 @@ import { useDataVersion } from '../components/DataVersion';
 import { CloseIcon, DownloadIcon, WarningIcon } from '../components/Icons';
 import { Checkbox, ItemIdentity, Pagination, QtyBadge, SortHeader, Spinner } from '../components/ui';
 import { useStockTypes } from '../components/StockTypes';
+import { useOnestockStock } from '../api/onestock';
+import { ApplyRulesOnestockModal } from '../features/ApplyRulesOnestockModal';
 import { ItemSearch } from '../features/ItemSearch';
 import { RuleEditorModal } from '../features/RuleEditorModal';
 import { StockImportModal } from '../features/StockImportModal';
@@ -31,7 +33,7 @@ export function ItemListPage() {
   const [searchInput, setSearchInput] = useState(search);
   const debouncedSearch = useDebounced(searchInput);
   const [selected, setSelected] = useState<Map<string, Item>>(new Map());
-  const [modal, setModal] = useState<'add' | 'import' | null>(null);
+  const [modal, setModal] = useState<'add' | 'import' | 'applyOnestock' | null>(null);
 
   const update = (patch: Record<string, string | undefined>) => {
     const next = new URLSearchParams(params);
@@ -90,6 +92,11 @@ export function ItemListPage() {
         <button type="button" className="btn btn--primary" onClick={() => setModal('add')}>
           {selected.size ? `Create a rule for ${plural(selected.size, 'item')}` : 'New segmentation rule'}
         </button>
+        {selected.size > 0 && useOnestockStock() && (
+          <button type="button" className="btn btn--secondary" onClick={() => setModal('applyOnestock')}>
+            Apply rules → OneStock ({selected.size})
+          </button>
+        )}
         <button type="button" className="btn btn--secondary" onClick={() => setModal('import')}>
           <DownloadIcon /> Stock import
         </button>
@@ -212,6 +219,17 @@ export function ItemListPage() {
           }
           onClose={() => setModal(null)}
           onSaved={() => {
+            setModal(null);
+            setSelected(new Map());
+            bump();
+          }}
+        />
+      )}
+      {modal === 'applyOnestock' && (
+        <ApplyRulesOnestockModal
+          itemIds={[...selected.keys()]}
+          onClose={() => setModal(null)}
+          onDone={() => {
             setModal(null);
             setSelected(new Map());
             bump();
