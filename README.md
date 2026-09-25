@@ -37,7 +37,7 @@ npm run build      # typecheck + build de production
   la répartition sur les groupes, la source (règle / manuel / aucune) et la règle du prochain import ; clic sur une
   ligne = modification manuelle.
 - **Settings** (`/settings`) → *Stock types* : création, modification, ordre et suppression des types et de leurs groupes.
-- **Settings** → *OneStock API* : URL, site_id, token, langue par défaut ; tests de chargement des catégories, des stock locations et des articles.
+- **Settings** → *OneStock API* : URL, site_id, token, langue par défaut ; tests de chargement des catégories, des stock locations, des articles et du stock.
 - **Settings** → *Database* : stockage des règles de segmentation (navigateur ou base Vercel), URL de l'API, clé API,
   test de connexion, initialisation de la base, copie des règles locales vers la base.
 
@@ -63,7 +63,7 @@ Les identifiants de la base restent côté serveur (variables d'environnement Ve
 de l'API et la clé API. En local, mettre `DATABASE_URL` et `API_KEY` dans `.env.local` (voir `.env.example`) :
 `npm run dev` exécute les mêmes fonctions.
 
-## API OneStock (catégories, stock locations, articles)
+## API OneStock (catégories, stock locations, articles, stock)
 
 *Settings → OneStock API* : `{{url}}`, `{{site_id}}`, `{{token}}`, langue par défaut des libellés, méthode HTTP (GET par
 défaut). Quand l'API est configurée, les valeurs du critère **Category** de l'éditeur de règle viennent de
@@ -77,8 +77,16 @@ défaut). Quand l'API est configurée, les valeurs du critère **Category** de l
   - détail par lot (`{ item_ids: [...] }`) : `features.<langue>` (langue par défaut, sinon la première) → nom, image,
     désignation, description et toutes les caractéristiques affichées dans le détail article.
   - L'import de stock accepte alors tout SKU OneStock (id d'article) et les ids d'endpoints comme `location_code`.
+- Le **stock** des articles vient de `{{url}}/stock_export` (`{ request_name: {{stock_request}}, item_filter: { ids } }`,
+  par lots de 50, cache 2 min) : chaque enregistrement `{ item_id, endpoint_id, quantity, type, purchase_order_number,
+  eta_start, eta_end }` est rattaché au type de stock de *Settings → Stock types* dont le code est `type` (sans tenir
+  compte de la casse). Le stock OneStock est déjà segmenté : un enregistrement sur un groupe (`Container_A`) est la
+  quantité du groupe, un enregistrement sur le type principal (`Container`) ce qui reste dessus. Les lignes affichées
+  (article × endpoint × type principal × purchase order) sont en lecture seule ; les seuils viennent de la règle qui
+  s'appliquerait. Les types non configurés sont signalés et ignorés.
 - L'appel passe par le proxy `POST /api/onestock` (fonction Vercel) : le navigateur ne peut pas appeler l'API OneStock
-  directement (CORS). Le proxy n'autorise que les chemins listés (`/categories`, `/endpoints`, `/v3/items`), ne relaie que `pagination` et `item_ids` en plus de
+  directement (CORS). Le proxy n'autorise que les chemins listés (`/categories`, `/endpoints`, `/v3/items`, `/stock_export`), ne relaie que `pagination`, `item_ids`,
+  `request_name` et `item_filter` en plus de
   `site_id` / `token`, et impose https.
 - La réponse est un arbre `{ category: { sub_category: [{ id, display_info: { <langue>: { name } }, sub_category? }] } }` :
   chaque nœud devient une catégorie (libellé « Parent › Enfant » pour les niveaux inférieurs), nommée dans la langue par
@@ -92,7 +100,7 @@ api/                   Fonctions serverless Vercel (règles de segmentation en b
 src/
   api/types.ts         Contrat StockAllocationApi (à implémenter côté HTTP)
   api/remoteRules.ts   Client HTTP des fonctions /api ; api/dbConfig.ts : paramètres Settings → Database
-  api/onestock.ts      Paramètres Settings → OneStock API, appel via le proxy, lecture des catégories, endpoints et articles
+  api/onestock.ts      Paramètres Settings → OneStock API, appel via le proxy, lecture des catégories, endpoints, articles et stock ; utils/onestockStock.ts : stock_export → lignes de stock
   api/mockApi.ts       Implémentation mockée (données en mémoire + localStorage)
   api/index.ts         Point unique où brancher la vraie API
   utils/stockTypes.ts  Hiérarchie des types de stock (types principaux → groupes)

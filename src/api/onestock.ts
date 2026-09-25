@@ -21,10 +21,14 @@ export interface OnestockConfig {
   useForLocations: boolean;
   /** Use the API (v3/items) for the items (search, allocation pages, SKU criteria). */
   useForItems: boolean;
+  /** {{stock_request}}: request_name of the stock_export call. */
+  stockRequest: string;
+  /** Read the item stock from the API (stock_export). */
+  useForStock: boolean;
 }
 
 const KEY = 'stock-allocation:onestock-config';
-export const DEFAULT_ONESTOCK_CONFIG: OnestockConfig = { url: '', siteId: '', token: '', method: 'GET', language: 'fr', useForCategories: true, useForLocations: true, useForItems: true };
+export const DEFAULT_ONESTOCK_CONFIG: OnestockConfig = { url: '', siteId: '', token: '', method: 'GET', language: 'fr', useForCategories: true, useForLocations: true, useForItems: true, stockRequest: '', useForStock: true };
 
 export function getOnestockConfig(): OnestockConfig {
   try {
@@ -46,6 +50,7 @@ export function setOnestockConfig(config: OnestockConfig) {
   endpointsCache = undefined;
   itemIndex = undefined;
   itemDetails.clear();
+  stockCache.clear();
 }
 
 export const isOnestockConfigured = (c = getOnestockConfig()) => !!(c.url.trim() && c.siteId.trim() && c.token.trim());
@@ -312,3 +317,46 @@ export const minimalItem = (id: string): Item => ({
 export const cachedItem = (id: string) => itemDetails.get(id);
 
 export const useOnestockItems = (c = getOnestockConfig()) => c.useForItems && isOnestockConfigured(c);
+
+// ---------------------------------------------------------------------------
+// Stock (stock_export)
+// ---------------------------------------------------------------------------
+
+/** One record of stock_export: quantity of an item, in an endpoint, on a stock type (segment). */
+export interface StockRecord {
+  item_id: string;
+  endpoint_id: string;
+  quantity: number;
+  /** Stock type code, main type (on_hand, Container…) or group (on_hand_A, Container_B…). */
+  type: string;
+  eta_start?: number;
+  eta_end?: number;
+  purchase_order_number?: string;
+}
+
+const STOCK_BATCH = 50;
+const STOCK_CACHE_MS = 2 * 60 * 1000;
+const stockCache = new Map<string, { at: number; records: StockRecord[] }>();
+
+export const useOnestockStock = (c = getOnestockConfig()) => c.useForStock && isOnestockConfigured(c);
+
+/** stock_export for some items: { request_name, item_filter: { ids } }, by batches, cached 2 minutes per item. */
+export async function fetchStock(itemIds: string[], config = getOnestockConfig(), force = false): Promise<StockRecord[]> {
+  const now = Date.now();
+  const missing = [...new Set(itemIds)].filter((id) => force || !stockCache.has(id) || now - stockCache.get(id)!.at > STOCK_CACHE_MS);
+  for (let i = 0; i < missing.length; i += STOCK_BATCH) {
+    const batch = missing.slice(i, i + STOCK_BATCH);
+    const data = await callOnestock<{ stocks?: StockRecord[] }>('/stock_export', config, {
+      ...(config.stockRequest.trim() ? { request_name: config.stockRequest.trim() } : {}),
+      item_filter: { ids: batch },
+    });
+    const byItem = new Map<string, StockRecord[]>(batch.map((id) => [id, []]));
+    (data?.stocks ?? []).forEach((r) => {
+      if (!r || !r.item_id) return;
+      if (!byItem.has(r.item_id)) byItem.set(r.item_id, []);
+      byItem.get(r.item_id)!.push({ ...r, quantity: Number(r.quantity) || 0 });
+    });
+    byItem.forEach((records, id) => stockCache.set(id, { at: now, records }));
+  }
+  return itemIds.flatMap((id) => stockCache.get(id)?.records ?? []);
+}

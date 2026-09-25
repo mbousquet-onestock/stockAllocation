@@ -325,3 +325,4 @@ main { padding: 0 40px 100px; }
 .item-description { font-size: 14px; line-height: 1.5; margin: 0 0 12px; max-width: 900px; }
 .detail-header .thumb { object-fit: contain; background: #fff; border: 1px solid var(--border); }
 .item-test { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.notice { padding: 0 8px 8px; }

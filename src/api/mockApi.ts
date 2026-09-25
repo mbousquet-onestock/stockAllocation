@@ -20,6 +20,7 @@ import { getDbConfig } from './dbConfig';
 import {
   cachedItem,
   fetchCategories,
+  fetchStock,
   fetchEndpoints,
   fetchItemDetails,
   fetchItemIndex,
@@ -27,7 +28,9 @@ import {
   isOnestockConfigured,
   minimalItem,
   useOnestockItems,
+  useOnestockStock,
 } from './onestock';
+import { recordsToLines } from '../utils/onestockStock';
 import { remoteRules } from './remoteRules';
 import { buildRules, buildStockLines, buildStockTypes, ITEMS, LOCATIONS, newLine } from './mockData';
 import type { StockAllocationApi } from './types';
@@ -104,6 +107,20 @@ async function loadCatalog(): Promise<Item[]> {
 const catalog = () => catalogCache;
 const itemOf = (id: string): Item => catalog().find((i) => i.id === id) ?? ITEMS.find((i) => i.id === id) ?? cachedItem(id) ?? minimalItem(id);
 const summaries = (): ItemSummary[] => catalog().map((item) => summarize(item, linesOf(item.id)));
+
+/**
+ * Stock of some items: the OneStock stock (stock_export) when configured, else the local stock lines.
+ * OneStock lines get the thresholds of the rule that would apply to them, so that warnings stay meaningful.
+ */
+async function stockOf(itemIds: string[]): Promise<{ lines: StockLine[]; unknownTypes: string[]; onestock: boolean }> {
+  if (!useOnestockStock()) return { lines: db.lines.filter((l) => itemIds.includes(l.itemId)), unknownTypes: [], onestock: false };
+  const { lines, unknownTypes } = recordsToLines(await fetchStock(itemIds), tree());
+  lines.forEach((l) => {
+    const rule = effectiveRule(rules(), itemOf(l.itemId), l);
+    if (rule) Object.entries(l.split).forEach(([g, a]) => (a.threshold = rule.thresholds[g] ?? null));
+  });
+  return { lines, unknownTypes, onestock: true };
+}
 
 /** Demo locations, plus the OneStock endpoints when configured. */
 async function allLocations(): Promise<StockLocation[]> {
@@ -475,9 +492,16 @@ export const mockApi: StockAllocationApi = {
     list = sortSummaries(list, query.sort);
     const start = query.page * query.pageSize;
     const page = list.slice(start, start + query.pageSize);
-    if (useOnestockItems()) {
-      const details = await fetchItemDetails(page.map((s) => s.item.id));
-      return { data: page.map((s, i) => ({ ...s, item: details[i] })), total: list.length };
+    if (useOnestockItems() || useOnestockStock()) {
+      const ids = page.map((s) => s.item.id);
+      const [details, stock] = await Promise.all([
+        useOnestockItems() ? fetchItemDetails(ids) : Promise.resolve(page.map((s) => s.item)),
+        useOnestockStock() ? (await syncRules(), stockOf(ids)) : Promise.resolve(undefined),
+      ]);
+      let data = page.map((s, i) => (stock ? summarize(details[i], stock.lines.filter((l) => l.itemId === ids[i])) : { ...s, item: details[i] }));
+      // Quantities are only known for the page: a quantity sort applies to it.
+      if (stock && query.sort && query.sort.key !== 'item') data = sortSummaries(data, query.sort);
+      return { data, total: list.length };
     }
     return delay({ data: page, total: list.length });
   },
@@ -497,15 +521,18 @@ export const mockApi: StockAllocationApi = {
     const demo = ITEMS.find((i) => i.id === itemId);
     const item = demo ?? (useOnestockItems() ? (await fetchItemDetails([itemId]))[0] : undefined);
     if (!item) return fail(`Item ${itemId} not found`);
-    const lines = linesOf(itemId);
-    const locations = await allLocations();
+    const [stock, locations] = await Promise.all([stockOf([itemId]), allLocations()]);
+    const lines = stock.lines;
     const ref = (r?: SegmentationRule) => (r ? { id: r.id, name: r.name } : undefined);
     const rows = lines.map((l) => {
       const location = locations.find((x) => x.id === l.locationId) ?? { id: l.locationId, code: l.locationId, name: l.locationId };
       const rule = l.source.type === 'rule' ? ref(rules().find((r) => r.id === (l.source as { ruleId: string }).ruleId)) : undefined;
       return { ...toRow(location, l), rule, nextRule: ref(effectiveRule(rules(), item, l)) };
     });
-    return delay({ summary: summarize(item, lines), rows });
+    const notices = stock.unknownTypes.length
+      ? [`Stock types not configured in Settings → Stock types, ignored: ${stock.unknownTypes.join(', ')}`]
+      : [];
+    return delay({ summary: summarize(item, lines), rows, readOnly: stock.onestock, notices });
   },
 
   async listLocations() {

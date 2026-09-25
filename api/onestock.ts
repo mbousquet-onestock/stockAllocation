@@ -7,9 +7,9 @@ import { body, HttpError, route } from './_lib/db.js';
  * { url, path, method, site_id, token } here and this function performs the call server side.
  * Only the paths below are allowed, so this is not an open proxy.
  */
-const ALLOWED_PATHS = ['/categories', '/endpoints', '/v3/items'];
+const ALLOWED_PATHS = ['/categories', '/endpoints', '/v3/items', '/stock_export'];
 /** Extra body fields relayed with site_id / token. */
-const ALLOWED_PARAMS = ['pagination', 'item_ids'];
+const ALLOWED_PARAMS = ['pagination', 'item_ids', 'request_name', 'item_filter'];
 const TIMEOUT_MS = 15000;
 
 interface ProxyBody {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { getDbConfig } from '../api/dbConfig';
 import {
   callOnestock,
@@ -8,11 +8,13 @@ import {
   parseEndpoints,
   parseItem,
   fetchItemsPage,
+  fetchStock,
   setOnestockConfig,
   type Category,
   type OnestockConfig,
 } from '../api/onestock';
 import { useDataVersion } from '../components/DataVersion';
+import { useStockTypes } from '../components/StockTypes';
 import { CheckIcon, WarningIcon } from '../components/Icons';
 import { useToast } from '../components/Toast';
 import { Checkbox, ItemIdentity, Spinner } from '../components/ui';
@@ -45,6 +47,9 @@ export function OnestockSettings() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ categories: Category[]; languages: string[] } | { error: string }>();
   const [items, setItems] = useState<{ ids: string[]; first?: Item; more: boolean } | { error: string }>();
+  const [stock, setStock] = useState<{ records: number; items: number; types: string[]; unknown: string[] } | { error: string }>();
+  const [stockIds, setStockIds] = useState('');
+  const tree = useStockTypes();
   const [endpoints, setEndpoints] = useState<{ locations: StockLocation[] } | { error: string }>();
   const dirty = JSON.stringify(config) !== JSON.stringify(saved);
   const complete = !!(config.url.trim() && config.siteId.trim() && config.token.trim());
@@ -54,6 +59,7 @@ export function OnestockSettings() {
     setResult(undefined);
     setEndpoints(undefined);
     setItems(undefined);
+    setStock(undefined);
   };
 
   const test = async () => {
@@ -98,6 +104,26 @@ export function OnestockSettings() {
     }
   };
 
+  const testStock = async () => {
+    setBusy(true);
+    try {
+      let ids = stockIds.split(/[\s,;]+/).filter(Boolean);
+      if (!ids.length) ids = ((await fetchItemsPage({ limit: 10, start: 0 }, config)).items ?? []).map((i) => String(i.id));
+      const records = await fetchStock(ids, config, true);
+      const types = [...new Set(records.map((r) => r.type))].sort();
+      setStock({
+        records: records.length,
+        items: new Set(records.map((r) => r.item_id)).size,
+        types,
+        unknown: types.filter((t) => !tree.byCode(t)),
+      });
+    } catch (e) {
+      setStock({ error: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const save = () => {
     setOnestockConfig(config);
     bump();
@@ -113,7 +139,7 @@ export function OnestockSettings() {
           <h2>OneStock API</h2>
           <p className="muted">
             Access to the OneStock API, used to list the <strong>categories</strong> (<code>{'{{url}}'}/categories</code>) the{' '}
-            <strong>items</strong> (<code>{'{{url}}'}/v3/items</code>) and the <strong>stock locations</strong> (<code>{'{{url}}'}/endpoints</code>) of the segmentation rules, with <code>site_id</code> and{' '}
+            <strong>items</strong> (<code>{'{{url}}'}/v3/items</code>) and the <strong>stock</strong> (<code>{'{{url}}'}/stock_export</code>) and the <strong>stock locations</strong> (<code>{'{{url}}'}/endpoints</code>) of the segmentation rules, with <code>site_id</code> and{' '}
             <code>token</code>. The browser cannot call the API
             directly: the calls go through the proxy of the application (<code>{proxy.apiUrl || '/api'}/onestock</code>).
           </p>
@@ -186,6 +212,21 @@ export function OnestockSettings() {
           onChange={(useForItems) => set({ useForItems })}
           label="Use the OneStock items (item search, allocation pages, SKU criteria)"
         />
+        <Checkbox
+          checked={config.useForStock}
+          onChange={(useForStock) => set({ useForStock })}
+          label="Read the item stock from OneStock (stock_export) in the allocation pages"
+        />
+        <div className="form-row">
+          <label className="field">
+            <span className="field__label">Stock request — {'{{stock_request}}'} (request_name of stock_export)</span>
+            <input className="input" value={config.stockRequest} onChange={(e) => set({ stockRequest: e.target.value })} placeholder="e.g. stock_segments" />
+          </label>
+          <label className="field">
+            <span className="field__label">Item ids to test (optional)</span>
+            <input className="input" value={stockIds} onChange={(e) => setStockIds(e.target.value)} placeholder="first items" />
+          </label>
+        </div>
 
         <div className="db-actions">
           <button type="button" className="btn btn--secondary" disabled={busy || !complete} onClick={test}>
@@ -196,6 +237,9 @@ export function OnestockSettings() {
           </button>
           <button type="button" className="btn btn--secondary" disabled={busy || !complete} onClick={testItems}>
             Test — load the items
+          </button>
+          <button type="button" className="btn btn--secondary" disabled={busy || !complete} onClick={testStock}>
+            Test — load the stock
           </button>
           {busy && <Spinner />}
         </div>
@@ -220,6 +264,29 @@ export function OnestockSettings() {
                   ))}
                   {result.categories.length > 20 && <li className="muted">… and {result.categories.length - 20} more</li>}
                 </ul>
+              </>
+            )}
+          </div>
+        )}
+        {stock && (
+          <div className={`db-status ${'error' in stock ? 'is-error' : 'is-ok'}`}>
+            {'error' in stock ? (
+              <div className="db-status__title">
+                <WarningIcon /> {stock.error}
+              </div>
+            ) : (
+              <>
+                <div className="db-status__title">
+                  <CheckIcon /> {plural(stock.records, 'stock record')} for {plural(stock.items, 'item')}
+                </div>
+                <div className="small">
+                  Stock types: {stock.types.map((t) => <code key={t}>{t}</code>).reduce<React.ReactNode[]>((a, c) => (a.length ? [...a, ' ', c] : [c]), [])}
+                </div>
+                {stock.unknown.length > 0 && (
+                  <div className="text-warning small">
+                    Not configured in Settings → Stock types (ignored): {stock.unknown.join(', ')}
+                  </div>
+                )}
               </>
             )}
           </div>

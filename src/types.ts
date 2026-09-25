@@ -70,7 +70,9 @@ export type AllocationSource =
   | { type: 'rule'; ruleId: string }
   | { type: 'manual' }
   /** No rule matched at the last stock update: the whole quantity stays on the main stock type. */
-  | { type: 'none' };
+  | { type: 'none' }
+  /** Stock read from the OneStock API (stock_export), already segmented there. */
+  | { type: 'onestock' };
 
 /**
  * Stock of an item, in a location, on a stock type (and purchase order for future stock).
@@ -86,6 +88,8 @@ export interface StockLine {
   split: Record<string, GroupAllocation>; // by group stock type id
   period: ActivationPeriod;
   source: AllocationSource;
+  /** Future stock: expected arrival (unix seconds). */
+  eta?: { start: number; end: number };
 }
 
 /** Quantities by stock type id (main types = remaining after split, groups = split quantities). */
@@ -116,6 +120,10 @@ export interface StockLineRow {
 export interface ItemDetail {
   summary: ItemSummary;
   rows: StockLineRow[];
+  /** Stock read from the OneStock API: lines cannot be edited here. */
+  readOnly?: boolean;
+  /** Information about the data (e.g. unknown stock types in the OneStock answer). */
+  notices?: string[];
 }
 
 export type SortDirection = 'asc' | 'desc';

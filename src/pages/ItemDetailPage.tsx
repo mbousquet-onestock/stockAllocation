@@ -11,6 +11,12 @@ import { SplitBar } from '../features/SplitBar';
 import type { Sort, StockLineRow } from '../types';
 import { familyTotal, isActive } from '../utils/allocation';
 import { formatPeriod, todayIso } from '../utils/format';
+
+/** ETA of future stock (unix seconds) → dd/mm/yyyy, or a range. */
+function formatEta(eta: { start: number; end: number }) {
+  const d = (t: number) => new Date(t * 1000).toLocaleDateString('fr-FR');
+  return eta.start === eta.end || d(eta.start) === d(eta.end) ? d(eta.start) : `${d(eta.start)} → ${d(eta.end)}`;
+}
 import { useAsync } from '../utils/useAsync';
 
 type RowSortKey = 'location' | 'type' | 'po' | 'quantity' | 'remaining' | 'period';
@@ -77,7 +83,8 @@ export function ItemDetailPage() {
     );
   if (!detail.data) return <Spinner />;
 
-  const { summary } = detail.data;
+  const { summary, readOnly, notices = [] } = detail.data;
+  const hasEta = detail.data.rows.some((r) => r.line.eta);
   const item = summary.item;
   const pageRows = rows.slice(page * pageSize, (page + 1) * pageSize);
   const pagination = (
@@ -179,6 +186,7 @@ export function ItemDetailPage() {
       <div className="card page">
         <div className="list-header">
           <strong>Stock lines</strong>
+          {readOnly && <span className="badge badge--rule">Stock from OneStock (stock_export) · read only</span>}
           {typeFilter && (
             <button type="button" className="chip chip--selected" onClick={() => setTypeFilter('')}>
               {tree.label(typeFilter)} ×
@@ -187,6 +195,11 @@ export function ItemDetailPage() {
           <span className="grow" />
           {pagination}
         </div>
+        {notices.map((n) => (
+          <div key={n} className="notice text-warning small">
+            {n}
+          </div>
+        ))}
         <div className="table-wrap">
           <table className="table">
             <thead>
@@ -210,6 +223,7 @@ export function ItemDetailPage() {
                 <th>
                   <SortHeader label="Activation period" sortKey="period" sort={sort} onSort={onSort} />
                 </th>
+                {hasEta && <th>ETA</th>}
                 <th>Source</th>
                 <th>Rule at next update</th>
               </tr>
@@ -220,7 +234,12 @@ export function ItemDetailPage() {
                 const groups = tree.groupsOf(r.line.stockTypeId);
                 const active = isActive(r.line.period, today);
                 return (
-                  <tr key={r.line.id} className="is-clickable" onClick={() => setEditing(r)} title="Edit segmentation">
+                  <tr
+                    key={r.line.id}
+                    className={readOnly ? '' : 'is-clickable'}
+                    onClick={() => !readOnly && setEditing(r)}
+                    title={readOnly ? 'Stock from OneStock: read only' : 'Edit segmentation'}
+                  >
                     <td>
                       <div>{r.location.name}</div>
                       <div className="muted">{r.location.code}</div>
@@ -248,8 +267,11 @@ export function ItemDetailPage() {
                         {formatPeriod(r.line.period)}
                       </span>
                     </td>
+                    {hasEta && <td className="small">{r.line.eta ? formatEta(r.line.eta) : <span className="muted">—</span>}</td>}
                     <td>
-                      {r.line.source.type === 'rule' ? (
+                      {r.line.source.type === 'onestock' ? (
+                        <span className="badge badge--rule">OneStock</span>
+                      ) : r.line.source.type === 'rule' ? (
                         <span className="badge badge--rule">Rule: {r.rule?.name ?? 'deleted'}</span>
                       ) : r.line.source.type === 'manual' ? (
                         <span className="badge">Manual</span>
