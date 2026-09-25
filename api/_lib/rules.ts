@@ -1,4 +1,4 @@
-import { HttpError, sql } from './db.js';
+import { adoptLegacyRows, HttpError, sql } from './db.js';
 
 /** Segmentation rule as stored: the full rule JSON, with id and priority as columns, scoped by site. */
 export interface StoredRule {
@@ -22,15 +22,8 @@ type Row = { id: string; priority: number; data: Record<string, unknown>; update
 
 const toRule = (r: Row): StoredRule => ({ ...r.data, id: r.id, priority: r.priority, updatedAt: r.updated_at.toISOString() });
 
-/** Rules stored before the site scoping (site_id '') go to the first site that reads its rules. */
-async function adoptLegacyRules(site: string) {
-  if (!site) return;
-  const [{ own }] = await sql()<{ own: number }[]>`select count(*)::int as own from segmentation_rules where site_id = ${site}`;
-  if (own === 0) await sql()`update segmentation_rules set site_id = ${site} where site_id = ''`;
-}
-
 export async function listRules(site: string): Promise<StoredRule[]> {
-  await adoptLegacyRules(site);
+  await adoptLegacyRows('segmentation_rules', site);
   const rows = await sql()<Row[]>`
     select id, priority, data, updated_at from segmentation_rules where site_id = ${site} order by priority, id`;
   return rows.map(toRule);

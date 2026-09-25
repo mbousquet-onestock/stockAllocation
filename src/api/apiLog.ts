@@ -1,5 +1,5 @@
 import { getDbConfig } from './dbConfig';
-import { siteHeader } from './site';
+import { currentSiteId, siteHeader } from './site';
 
 /**
  * Journal of the API calls made by the application (OneStock through the proxy, Vercel database),
@@ -116,7 +116,8 @@ export function logApiCall(entry: Omit<ApiLogEntry, 'id' | 'summary' | 'truncate
   entries = [logged, ...entries].slice(0, MAX_ENTRIES);
   save();
   emit();
-  if (getDbConfig().mode === 'remote') queueForDatabase(logged);
+  // Stored in the database with its site; without site ID the call stays in the browser log only.
+  if (getDbConfig().mode === 'remote' && currentSiteId()) queueForDatabase(logged);
 }
 
 // ---------------------------------------------------------------------------

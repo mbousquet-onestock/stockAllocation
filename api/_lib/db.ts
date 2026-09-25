@@ -40,7 +40,8 @@ export async function ensureSchema() {
         alter table segmentation_rules add primary key (site_id, id);
       end if;
     end $$`);
-  await sql()`create index if not exists segmentation_rules_priority_idx on segmentation_rules (site_id, priority)`;
+  await sql()`drop index if exists segmentation_rules_priority_idx`;
+  await sql()`create index if not exists segmentation_rules_site_priority_idx on segmentation_rules (site_id, priority)`;
   await sql()`
     create table if not exists api_calls (
       id bigserial primary key,
@@ -59,7 +60,11 @@ export async function ensureSchema() {
       truncated boolean not null default false
     )`;
   await sql()`alter table api_calls add column if not exists site_id text not null default ''`;
+  await sql()`drop index if exists api_calls_at_idx`;
   await sql()`create index if not exists api_calls_site_at_idx on api_calls (site_id, at desc)`;
+  // Every insert must give its site: no default value any more (legacy rows keep '' until a site adopts them).
+  await sql()`alter table segmentation_rules alter column site_id drop default`;
+  await sql()`alter table api_calls alter column site_id drop default`;
   await sql()`
     create table if not exists site_settings (
       site_id text primary key,
@@ -137,11 +142,39 @@ export function route(handlers: Partial<Record<'GET' | 'POST' | 'PUT' | 'DELETE'
   };
 }
 
-/** Site the data belongs to (OneStock site_id), sent by the application in the x-site-id header. */
+/**
+ * Site the data belongs to (OneStock site_id): x-site-id header, or site_id query parameter.
+ * Required for the site scoped data (rules, API calls, site settings).
+ */
 export function siteOf(req: ApiRequest): string {
-  const v = req.headers['x-site-id'];
-  return (Array.isArray(v) ? v[0] : v ?? '').trim();
+  const header = req.headers['x-site-id'];
+  const query = req.query.site_id;
+  const site = String((Array.isArray(header) ? header[0] : header) ?? (Array.isArray(query) ? query[0] : query) ?? '').trim();
+  if (!site) throw new HttpError(400, 'Site ID missing: set the OneStock site ID in Settings → OneStock API');
+  return site;
 }
+
+/** Site of the request when given (health, setup). */
+export function optionalSiteOf(req: ApiRequest): string {
+  try {
+    return siteOf(req);
+  } catch {
+    return '';
+  }
+}
+
+/** Rows stored before the site scoping (site_id '') go to the first site that uses the table. */
+export async function adoptLegacyRows(table: 'segmentation_rules' | 'api_calls', site: string) {
+  const adopted = (adoptedTables[site] ??= new Set());
+  if (adopted.has(table)) return;
+  if (table === 'segmentation_rules') {
+    const [{ own }] = await sql()<{ own: number }[]>`select count(*)::int as own from segmentation_rules where site_id = ${site}`;
+    // A site that already has rules does not take the legacy ones (they may belong to another site).
+    if (own === 0) await sql()`update segmentation_rules set site_id = ${site} where site_id = ''`;
+  } else await sql()`update api_calls set site_id = ${site} where site_id = ''`;
+  adopted.add(table);
+}
+const adoptedTables: Record<string, Set<string>> = {};
 
 export const param = (req: ApiRequest, name: string): string => {
   const v = req.query[name];

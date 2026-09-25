@@ -62,9 +62,13 @@ Sans base de données, tous les paramètres sont propres à chaque navigateur. A
 | Historique des appels API | table `api_calls` (`site_id`) — *Clear* ne purge que le site |
 | Accès à la base (API URL, clé), **site ID** et **token** | navigateur de chaque poste (le token n'est jamais stocké en base) |
 
+Le `site_id` est **obligatoire** pour les règles, l'historique et les paramètres (HTTP 400 sinon) : chaque ligne des
+tables `segmentation_rules` et `api_calls` porte son site (colonne sans valeur par défaut, index `(site_id, …)`). Sans
+site ID saisi, l'historique reste dans le navigateur. Les lignes antérieures (site vide) sont reprises par le premier
+site qui utilise la table.
+
 Sur un nouveau poste : *Settings → Database* (Vercel database, API URL, clé) puis *Settings → OneStock API* (site ID +
-token) ; le reste est chargé depuis la base. Les règles enregistrées avant ce découpage (sans site) sont reprises par
-le premier site qui lit ses règles.
+token) ; le reste est chargé depuis la base. 
 
 ## Base de données Vercel (règles de segmentation)
 

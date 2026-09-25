@@ -1,4 +1,4 @@
-import { body, HttpError, param, route, siteOf, sql } from './_lib/db.js';
+import { adoptLegacyRows, body, HttpError, param, route, siteOf, sql } from './_lib/db.js';
 
 /**
  * History of the API calls made by the application (Settings → API calls).
@@ -46,6 +46,7 @@ export default route({
     const q = param(req, 'q').trim();
     const like = `%${q}%`;
     const site = siteOf(req);
+    await adoptLegacyRows('api_calls', site);
     const where = sql()`
       where site_id = ${site}
         and (${target} = '' or target = ${target})

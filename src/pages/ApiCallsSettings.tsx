@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { fetchDatabaseLog, getApiLog, purgeApiLog, subscribeApiLog, type ApiLogEntry } from '../api/apiLog';
 import { getDbConfig } from '../api/dbConfig';
+import { currentSiteId } from '../api/site';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { DownloadIcon } from '../components/Icons';
 import { useToast } from '../components/Toast';
@@ -90,7 +91,8 @@ export function ApiCallsSettings() {
             <strong>database</strong>, with its request and its result; tokens and keys are masked.{' '}
             {inDatabase ? (
               <>
-                The history is <strong>stored in the database</strong> (<code>api_calls</code> table).
+                The history is <strong>stored in the database</strong> (<code>api_calls</code> table) for the site{' '}
+                <code>{currentSiteId() || '(no site ID: kept in this browser)'}</code>.
               </>
             ) : (
               <>The last 300 calls are kept in this browser (use the Vercel database in Settings → Database to keep the history).</>
