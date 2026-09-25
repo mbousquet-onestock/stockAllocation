@@ -9,6 +9,7 @@ import { ApplyRulesOnestockModal } from '../features/ApplyRulesOnestockModal';
 import { EditStockLineModal } from '../features/EditStockLineModal';
 import { RuleEditorModal } from '../features/RuleEditorModal';
 import { SplitBar } from '../features/SplitBar';
+import { StockLineSearch, type LineFilterOption } from '../features/StockLineSearch';
 import type { Sort, StockLineRow } from '../types';
 import { familyTotal, isActive } from '../utils/allocation';
 import { formatPeriod, todayIso } from '../utils/format';
@@ -34,8 +35,12 @@ export function ItemDetailPage() {
   const tree = useStockTypes();
   const detail = useAsync(() => api.getItemDetail(itemId), [itemId, version]);
   const [typeFilter, setTypeFilter] = useState<string>('');
-  /** '' = all, NO_PO = lines without purchase order, else a purchase order number. */
-  const [poFilter, setPoFilter] = useState<string>('');
+  /** Search of the stock lines: free text + exact filters (purchase order, stock location, without PO). */
+  const [lineText, setLineText] = useState('');
+  const [lineFilters, setLineFilters] = useState<LineFilterOption[]>([]);
+  const poFilter = lineFilters.find((f) => f.kind === 'po' || f.kind === 'no-po');
+  const setPoFilter = (po: string) =>
+    setLineFilters((fs) => [...fs.filter((f) => f.kind === 'location'), ...(po ? [{ kind: 'po' as const, value: po, label: po }] : [])]);
   const [sort, setSort] = useState<Sort<RowSortKey>>();
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
@@ -48,6 +53,7 @@ export function ItemDetailPage() {
   // Go back to the list keeping its filters, or to the list when opened directly.
   const goBack = () => ((window.history.state?.idx ?? 0) > 0 ? navigate(-1) : navigate('/items'));
 
+  const lineQuery = lineText.trim().toLowerCase();
   const typePosition = useMemo(() => new Map(tree.ordered.map((t, i) => [t.id, i])), [tree]);
   const rowValue = (r: StockLineRow, key: RowSortKey): string | number => {
     switch (key) {
@@ -70,7 +76,14 @@ export function ItemDetailPage() {
     const list = (detail.data?.rows ?? []).filter(
       (r) =>
         (!typeFilter || r.line.stockTypeId === typeFilter) &&
-        (!poFilter || (poFilter === NO_PO ? !r.line.purchaseOrder : r.line.purchaseOrder === poFilter)),
+        lineFilters.every((f) =>
+          f.kind === 'no-po' ? !r.line.purchaseOrder : f.kind === 'po' ? r.line.purchaseOrder === f.value : r.line.locationId === f.value,
+        ) &&
+        (!lineQuery ||
+          [r.line.purchaseOrder ?? '', r.location.name, r.location.code, tree.label(r.line.stockTypeId), tree.code(r.line.stockTypeId)]
+            .join(' ')
+            .toLowerCase()
+            .includes(lineQuery)),
     );
     const s = sort ?? { key: 'type' as const, direction: 'asc' as const };
     const dir = s.direction === 'asc' ? 1 : -1;
@@ -81,7 +94,7 @@ export function ItemDetailPage() {
       return a.location.name.localeCompare(b.location.name);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detail.data, sort, typeFilter, poFilter, typePosition]);
+  }, [detail.data, sort, typeFilter, lineFilters, lineQuery, typePosition]);
 
   const onSort = (key: RowSortKey) =>
     setSort((s) => (s?.key !== key ? { key, direction: 'asc' } : s.direction === 'asc' ? { key, direction: 'desc' } : undefined));
@@ -111,6 +124,21 @@ export function ItemDetailPage() {
       }, new Map<string, { value: string; quantity: number; eta?: string }>())
       .values(),
   ].sort((a, b) => a.value.localeCompare(b.value));
+  const lineOptions: LineFilterOption[] = [
+    ...purchaseOrders.map((po) => ({
+      kind: 'po' as const,
+      value: po.value,
+      label: po.value,
+      detail: `${po.quantity} pcs${po.eta ? ` · ETA ${po.eta}` : ''}`,
+    })),
+    ...(purchaseOrders.length ? [{ kind: 'no-po' as const, value: NO_PO, label: 'Without purchase order' }] : []),
+    ...[...new Map(detail.data.rows.map((r) => [r.location.id, r.location])).values()].map((l) => ({
+      kind: 'location' as const,
+      value: l.id,
+      label: l.name,
+      detail: l.code !== l.name ? l.code : undefined,
+    })),
+  ];
   // One column per group suffix (A, B…), shared by every stock type of the lines.
   const suffixes = [
     ...new Set(
@@ -165,7 +193,7 @@ export function ItemDetailPage() {
               key={m.id}
               onClick={() => {
                 setTypeFilter(typeFilter === m.id ? '' : m.id);
-                setPoFilter('');
+                setLineFilters((fs) => fs.filter((f) => f.kind === 'location'));
                 setPage(0);
               }}
               title="Filter the stock lines on this type"
@@ -228,25 +256,19 @@ export function ItemDetailPage() {
         <div className="list-header">
           <strong>Stock lines</strong>
           {onestock && <span className="badge badge--rule">Stock from OneStock · changes are sent with stock_import</span>}
-          {purchaseOrders.length > 0 && (
-            <select
-              className="select select--sm"
-              value={poFilter}
-              onChange={(e) => {
-                setPoFilter(e.target.value);
-                setPage(0);
-              }}
-              aria-label="Purchase order"
-            >
-              <option value="">All purchase orders</option>
-              <option value={NO_PO}>Without purchase order</option>
-              {purchaseOrders.map((po) => (
-                <option key={po.value} value={po.value}>
-                  {po.value} · {po.quantity} pcs{po.eta ? ` · ETA ${po.eta}` : ''}
-                </option>
-              ))}
-            </select>
-          )}
+          <StockLineSearch
+            text={lineText}
+            onText={(t) => {
+              setLineText(t);
+              setPage(0);
+            }}
+            filters={lineFilters}
+            onFilters={(f) => {
+              setLineFilters(f);
+              setPage(0);
+            }}
+            options={lineOptions}
+          />
           {typeFilter && (
             <button type="button" className="chip chip--selected" onClick={() => setTypeFilter('')}>
               {tree.label(typeFilter)} ×
@@ -321,7 +343,7 @@ export function ItemDetailPage() {
                           title="Filter on this purchase order"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setPoFilter(poFilter === r.line.purchaseOrder ? '' : r.line.purchaseOrder!);
+                            setPoFilter(poFilter?.value === r.line.purchaseOrder ? '' : r.line.purchaseOrder!);
                             setPage(0);
                           }}
                         >

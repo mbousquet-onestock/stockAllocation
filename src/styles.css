@@ -346,3 +346,9 @@ main { padding: 0 40px 100px; }
 .table th.col-group-cell, .table th.col-split { font-size: 14px; }
 .select--sm { height: 30px; font-size: 13px; }
 .chip--clickable { cursor: pointer; font: inherit; font-family: ui-monospace, monospace; font-size: 12px; }
+.line-search { position: relative; min-width: 380px; flex: 1; max-width: 560px; }
+.line-search__box { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: 34px; padding: 2px 8px; border: 1px solid var(--border); border-radius: var(--radius); color: var(--muted); background: var(--surface); }
+.line-search__box:focus-within { border-color: var(--primary); }
+.line-search__box input { flex: 1; min-width: 160px; border: none; outline: none; height: 28px; background: none; color: var(--text); }
+.line-search__kind { width: 105px; flex-shrink: 0; }
+.line-search .dropdown { min-width: 560px; } .line-search .dropdown__option .muted.small { white-space: nowrap; }

@@ -16,3 +16,6 @@ Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
 3:26:42 PM [vite] (client) hmr update /src/styles.css
 3:27:01 PM [vite] (client) hmr update /src/pages/ItemDetailPage.tsx
 3:27:01 PM [vite] (client) hmr update /src/styles.css
+3:29:11 PM [vite] (client) hmr update /src/styles.css
+3:29:11 PM [vite] (client) hmr update /src/pages/ItemDetailPage.tsx
+3:29:49 PM [vite] (client) hmr update /src/styles.css
