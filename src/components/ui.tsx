@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { Item } from '../types';
 import { CloseIcon, SortIcon, WarningIcon, ChevronLeftIcon, ChevronRightIcon } from './Icons';
 import { formatPrice } from '../utils/format';
@@ -135,9 +135,11 @@ export function Modal({
 const THUMB_COLORS = ['#37474f', '#5c6bc0', '#26a69a', '#8d6e63', '#ef6c00', '#7e57c2', '#546e7a'];
 
 export function ItemThumb({ item, size = 32 }: { item: Item; size?: number }) {
-  if (item.imageUrl) return <img className="thumb" src={item.imageUrl} alt="" width={size} height={size} />;
+  const [broken, setBroken] = useState(false);
+  if (item.imageUrl && !broken)
+    return <img className="thumb" src={item.imageUrl} alt="" width={size} height={size} loading="lazy" onError={() => setBroken(true)} />;
   const color = THUMB_COLORS[item.category.length % THUMB_COLORS.length];
-  const initials = item.category
+  const initials = (item.category || item.name)
     .split(' ')
     .map((w) => w[0])
     .join('')
@@ -158,7 +160,7 @@ export function ItemIdentity({ item, detailed }: { item: Item; detailed?: boolea
         <div className="item-identity__name">{item.name}</div>
         {detailed && (
           <div className="item-identity__meta">
-            {formatPrice(item.price)} | {item.category} | {item.brand} | {item.specs.join(' | ')}
+            {[item.price ? formatPrice(item.price) : '', item.category, item.brand, ...item.specs].filter(Boolean).join(' | ')}
           </div>
         )}
         <div className="muted">{item.sku}</div>

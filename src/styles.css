@@ -315,3 +315,13 @@ main { padding: 0 40px 100px; }
 .form-row { display: grid; grid-template-columns: 1fr 160px; gap: 12px; }
 .category-preview { margin: 10px 0 0; padding-left: 18px; font-size: 13px; columns: 2; color: var(--text); }
 .db-help ul { padding-left: 20px; margin: 8px 0 0; }
+.item-search { position: relative; }
+.item-search .input { width: 100%; }
+.dropdown__option { align-items: center; }
+.dropdown__option.is-active { background: var(--primary-soft); }
+.features { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 4px 24px; font-size: 13px; }
+.features dt { color: var(--muted); }
+.features > div { display: grid; grid-template-columns: 170px 1fr; gap: 8px; padding: 4px 0; border-bottom: 1px solid #f2f2f2; word-break: break-word; }
+.item-description { font-size: 14px; line-height: 1.5; margin: 0 0 12px; max-width: 900px; }
+.detail-header .thumb { object-fit: contain; background: #fff; border: 1px solid var(--border); }
+.item-test { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }

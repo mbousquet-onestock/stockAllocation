@@ -5,6 +5,7 @@ import { useDataVersion } from '../components/DataVersion';
 import { CloseIcon, DownloadIcon, WarningIcon } from '../components/Icons';
 import { Checkbox, ItemIdentity, Pagination, QtyBadge, SortHeader, Spinner } from '../components/ui';
 import { useStockTypes } from '../components/StockTypes';
+import { ItemSearch } from '../features/ItemSearch';
 import { RuleEditorModal } from '../features/RuleEditorModal';
 import { StockImportModal } from '../features/StockImportModal';
 import type { Item, ItemSortKey, Sort } from '../types';
@@ -85,7 +86,7 @@ export function ItemListPage() {
   return (
     <div className="card page">
       <div className="toolbar">
-        <input className="input grow" placeholder="Search" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} />
+        <ItemSearch value={searchInput} onChange={setSearchInput} onPick={(item) => navigate(`/items/${encodeURIComponent(item.id)}`)} />
         <button type="button" className="btn btn--primary" onClick={() => setModal('add')}>
           {selected.size ? `Create a rule for ${plural(selected.size, 'item')}` : 'New segmentation rule'}
         </button>
@@ -171,7 +172,7 @@ export function ItemListPage() {
           </thead>
           <tbody className={list.loading ? 'is-loading' : ''}>
             {rows.map((r) => (
-              <tr key={r.item.id} className="is-clickable" onClick={() => navigate(`/items/${r.item.id}`)}>
+              <tr key={r.item.id} className="is-clickable" onClick={() => navigate(`/items/${encodeURIComponent(r.item.id)}`)}>
                 <td className="col-check">
                   <Checkbox checked={selected.has(r.item.id)} onChange={(c) => toggle(r.item, c)} />
                 </td>

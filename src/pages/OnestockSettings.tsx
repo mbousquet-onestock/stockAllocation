@@ -6,6 +6,8 @@ import {
   getOnestockConfig,
   parseCategories,
   parseEndpoints,
+  parseItem,
+  fetchItemsPage,
   setOnestockConfig,
   type Category,
   type OnestockConfig,
@@ -13,8 +15,8 @@ import {
 import { useDataVersion } from '../components/DataVersion';
 import { CheckIcon, WarningIcon } from '../components/Icons';
 import { useToast } from '../components/Toast';
-import { Checkbox, Spinner } from '../components/ui';
-import type { StockLocation } from '../types';
+import { Checkbox, ItemIdentity, Spinner } from '../components/ui';
+import type { Item, StockLocation } from '../types';
 import { plural } from '../utils/format';
 
 /** Languages found in the display_info of a category tree. */
@@ -42,6 +44,7 @@ export function OnestockSettings() {
   const [showToken, setShowToken] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ categories: Category[]; languages: string[] } | { error: string }>();
+  const [items, setItems] = useState<{ ids: string[]; first?: Item; more: boolean } | { error: string }>();
   const [endpoints, setEndpoints] = useState<{ locations: StockLocation[] } | { error: string }>();
   const dirty = JSON.stringify(config) !== JSON.stringify(saved);
   const complete = !!(config.url.trim() && config.siteId.trim() && config.token.trim());
@@ -50,6 +53,7 @@ export function OnestockSettings() {
     setConfig((c) => ({ ...c, ...patch }));
     setResult(undefined);
     setEndpoints(undefined);
+    setItems(undefined);
   };
 
   const test = async () => {
@@ -75,6 +79,25 @@ export function OnestockSettings() {
     }
   };
 
+  const testItems = async () => {
+    setBusy(true);
+    try {
+      const page = await fetchItemsPage({ limit: 25, start: 0 }, config);
+      const ids = (page.items ?? []).map((i) => String(i.id));
+      let first: Item | undefined;
+      if (ids[0]) {
+        const detail = await callOnestock<{ items?: unknown[] }>('/v3/items', config, { item_ids: [ids[0]], pagination: { limit: 1, start: 0 } });
+        const node = detail.items?.[0] as Parameters<typeof parseItem>[0] | undefined;
+        if (node) first = parseItem(node, config.language);
+      }
+      setItems({ ids, first, more: !!page.pagination?.search_after || ids.length === 25 });
+    } catch (e) {
+      setItems({ error: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const save = () => {
     setOnestockConfig(config);
     bump();
@@ -89,8 +112,8 @@ export function OnestockSettings() {
         <div>
           <h2>OneStock API</h2>
           <p className="muted">
-            Access to the OneStock API, used to list the <strong>categories</strong> (<code>{'{{url}}'}/categories</code>) and the{' '}
-            <strong>stock locations</strong> (<code>{'{{url}}'}/endpoints</code>) of the segmentation rules, with <code>site_id</code> and{' '}
+            Access to the OneStock API, used to list the <strong>categories</strong> (<code>{'{{url}}'}/categories</code>) the{' '}
+            <strong>items</strong> (<code>{'{{url}}'}/v3/items</code>) and the <strong>stock locations</strong> (<code>{'{{url}}'}/endpoints</code>) of the segmentation rules, with <code>site_id</code> and{' '}
             <code>token</code>. The browser cannot call the API
             directly: the calls go through the proxy of the application (<code>{proxy.apiUrl || '/api'}/onestock</code>).
           </p>
@@ -158,6 +181,11 @@ export function OnestockSettings() {
           onChange={(useForLocations) => set({ useForLocations })}
           label="Use the OneStock endpoints as stock locations of the segmentation rules"
         />
+        <Checkbox
+          checked={config.useForItems}
+          onChange={(useForItems) => set({ useForItems })}
+          label="Use the OneStock items (item search, allocation pages, SKU criteria)"
+        />
 
         <div className="db-actions">
           <button type="button" className="btn btn--secondary" disabled={busy || !complete} onClick={test}>
@@ -165,6 +193,9 @@ export function OnestockSettings() {
           </button>
           <button type="button" className="btn btn--secondary" disabled={busy || !complete} onClick={testEndpoints}>
             Test — load the stock locations
+          </button>
+          <button type="button" className="btn btn--secondary" disabled={busy || !complete} onClick={testItems}>
+            Test — load the items
           </button>
           {busy && <Spinner />}
         </div>
@@ -189,6 +220,27 @@ export function OnestockSettings() {
                   ))}
                   {result.categories.length > 20 && <li className="muted">… and {result.categories.length - 20} more</li>}
                 </ul>
+              </>
+            )}
+          </div>
+        )}
+        {items && (
+          <div className={`db-status ${'error' in items ? 'is-error' : 'is-ok'}`}>
+            {'error' in items ? (
+              <div className="db-status__title">
+                <WarningIcon /> {items.error}
+              </div>
+            ) : (
+              <>
+                <div className="db-status__title">
+                  <CheckIcon /> {plural(items.ids.length, 'item')} on the first page{items.more ? ' (more pages available)' : ''}
+                </div>
+                {items.first && (
+                  <div className="item-test">
+                    <ItemIdentity item={items.first} detailed />
+                    <span className="muted small">{Object.keys(items.first.features ?? {}).length} features read in "{config.language}"</span>
+                  </div>
+                )}
               </>
             )}
           </div>

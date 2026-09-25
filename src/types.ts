@@ -13,6 +13,11 @@ export interface Item {
   brand: string;
   season: string;
   imageUrl?: string;
+  description?: string;
+  /** All item features (OneStock items), in the default language. */
+  features?: Record<string, string>;
+  /** Where the item comes from: demo catalog or the OneStock API. */
+  source?: 'demo' | 'onestock';
 }
 
 export interface StockLocation {

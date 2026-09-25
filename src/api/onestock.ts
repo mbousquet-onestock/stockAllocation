@@ -1,4 +1,4 @@
-import type { StockLocation } from '../types';
+import type { Item, StockLocation } from '../types';
 import { getDbConfig } from './dbConfig';
 
 /**
@@ -19,10 +19,12 @@ export interface OnestockConfig {
   useForCategories: boolean;
   /** Use the API (endpoints) for the stock locations of the rules. */
   useForLocations: boolean;
+  /** Use the API (v3/items) for the items (search, allocation pages, SKU criteria). */
+  useForItems: boolean;
 }
 
 const KEY = 'stock-allocation:onestock-config';
-export const DEFAULT_ONESTOCK_CONFIG: OnestockConfig = { url: '', siteId: '', token: '', method: 'GET', language: 'fr', useForCategories: true, useForLocations: true };
+export const DEFAULT_ONESTOCK_CONFIG: OnestockConfig = { url: '', siteId: '', token: '', method: 'GET', language: 'fr', useForCategories: true, useForLocations: true, useForItems: true };
 
 export function getOnestockConfig(): OnestockConfig {
   try {
@@ -42,12 +44,18 @@ export function setOnestockConfig(config: OnestockConfig) {
   }
   categoriesCache = undefined;
   endpointsCache = undefined;
+  itemIndex = undefined;
+  itemDetails.clear();
 }
 
 export const isOnestockConfigured = (c = getOnestockConfig()) => !!(c.url.trim() && c.siteId.trim() && c.token.trim());
 
 /** Calls an OneStock endpoint through the proxy function. */
-export async function callOnestock<T = unknown>(path: string, config = getOnestockConfig()): Promise<T> {
+export async function callOnestock<T = unknown>(
+  path: string,
+  config = getOnestockConfig(),
+  params?: Record<string, unknown>,
+): Promise<T> {
   const proxy = getDbConfig();
   const base = proxy.apiUrl.replace(/\/+$/, '') || '/api';
   let res: Response;
@@ -55,7 +63,7 @@ export async function callOnestock<T = unknown>(path: string, config = getOnesto
     res = await fetch(`${base}/onestock`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(proxy.apiKey ? { 'x-api-key': proxy.apiKey } : {}) },
-      body: JSON.stringify({ url: config.url.trim(), path, method: config.method, site_id: config.siteId.trim(), token: config.token.trim() }),
+      body: JSON.stringify({ url: config.url.trim(), path, method: config.method, site_id: config.siteId.trim(), token: config.token.trim(), params }),
     });
   } catch {
     throw new Error(`Proxy unreachable (${base}/onestock)`);
@@ -167,3 +175,140 @@ export async function fetchEndpoints(force = false): Promise<StockLocation[]> {
   endpointsCache = { at: Date.now(), list };
   return list;
 }
+
+// ---------------------------------------------------------------------------
+// Items (v3/items)
+// ---------------------------------------------------------------------------
+
+const PAGE_SIZE = 25;
+/** Upper bound of the item index loaded for the search completion. */
+export const MAX_INDEXED_ITEMS = 5000;
+
+interface ItemsPage {
+  items?: Array<{ id?: string } & Record<string, unknown>>;
+  pagination?: { limit?: number; search_after?: unknown[]; scroll_id?: string };
+}
+
+/** One page of item ids: { pagination: { limit, start } } or, when start is not honoured, { limit, search_after }. */
+export async function fetchItemsPage(
+  pagination: { limit: number; start?: number; search_after?: unknown[] },
+  config = getOnestockConfig(),
+): Promise<ItemsPage> {
+  return callOnestock<ItemsPage>('/v3/items', config, { pagination });
+}
+
+let itemIndex: { at: number; ids: string[]; complete: boolean } | undefined;
+let indexLoading: Promise<string[]> | undefined;
+const INDEX_CACHE_MS = 10 * 60 * 1000;
+
+/**
+ * Every item id of the site (up to MAX_INDEXED_ITEMS), loaded page by page and cached 10 minutes.
+ * Pages are requested with `start`; if the API ignores it (same ids again), `search_after` is used instead.
+ */
+export function fetchItemIndex(force = false): Promise<string[]> {
+  if (!force && itemIndex && Date.now() - itemIndex.at < INDEX_CACHE_MS) return Promise.resolve(itemIndex.ids);
+  if (indexLoading) return indexLoading;
+  indexLoading = (async () => {
+    const ids: string[] = [];
+    const seen = new Set<string>();
+    let start = 0;
+    let searchAfter: unknown[] | undefined;
+    let complete = false;
+    while (ids.length < MAX_INDEXED_ITEMS) {
+      const page = await fetchItemsPage(searchAfter ? { limit: PAGE_SIZE, search_after: searchAfter } : { limit: PAGE_SIZE, start });
+      const pageIds = (page.items ?? []).map((i) => i.id).filter((id): id is string => !!id);
+      const fresh = pageIds.filter((id) => !seen.has(id));
+      if (pageIds.length && !fresh.length && !searchAfter && page.pagination?.search_after) {
+        // `start` not honoured: continue from the last known id.
+        searchAfter = [ids[ids.length - 1]];
+        continue;
+      }
+      fresh.forEach((id) => {
+        seen.add(id);
+        ids.push(id);
+      });
+      if (pageIds.length < PAGE_SIZE || !fresh.length) {
+        complete = true;
+        break;
+      }
+      start += PAGE_SIZE;
+      if (searchAfter) searchAfter = page.pagination?.search_after ?? [pageIds[pageIds.length - 1]];
+    }
+    itemIndex = { at: Date.now(), ids, complete };
+    return ids;
+  })().finally(() => (indexLoading = undefined));
+  return indexLoading;
+}
+
+export const itemIndexComplete = () => itemIndex?.complete ?? false;
+
+type FeatureValue = string | number | boolean | null;
+interface ItemNode {
+  id?: string;
+  features?: Record<string, Record<string, FeatureValue[] | FeatureValue> | undefined>;
+}
+
+const firstValue = (v: FeatureValue[] | FeatureValue | undefined): string => {
+  const x = Array.isArray(v) ? v[0] : v;
+  return x === null || x === undefined ? '' : String(x).trim();
+};
+
+/** Maps a v3/items entry to an Item, features read in the default language (fallback: first language). */
+export function parseItem(node: ItemNode, language = getOnestockConfig().language): Item {
+  const id = String(node.id);
+  const byLang = node.features ?? {};
+  const f = byLang[language] ?? Object.values(byLang).find(Boolean) ?? {};
+  const features = Object.fromEntries(
+    Object.entries(f)
+      .map(([k, v]) => [k, Array.isArray(v) ? v.map((x) => String(x ?? '').trim()).filter(Boolean).join(', ') : firstValue(v)] as const)
+      .filter(([, v]) => v !== ''),
+  );
+  const get = (...keys: string[]) => keys.map((k) => firstValue(f[k])).find(Boolean) ?? '';
+  return {
+    id,
+    sku: id,
+    name: get('name', 'title', 'designation') || id,
+    category: get('category', 'categories'),
+    brand: get('brand', 'marque'),
+    season: get('season', 'season_code'),
+    price: Number(get('price')) || 0,
+    specs: [get('designation', 'size')].filter(Boolean),
+    imageUrl: get('image', 'big_images') || undefined,
+    description: get('description') || undefined,
+    features,
+    source: 'onestock',
+  };
+}
+
+const itemDetails = new Map<string, Item>();
+
+/** Item details by id (item_ids), cached; unknown ids come back as minimal items. */
+export async function fetchItemDetails(ids: string[]): Promise<Item[]> {
+  const missing = [...new Set(ids.filter((id) => !itemDetails.has(id)))];
+  for (let i = 0; i < missing.length; i += PAGE_SIZE) {
+    const batch = missing.slice(i, i + PAGE_SIZE);
+    const page = await callOnestock<ItemsPage>('/v3/items', getOnestockConfig(), {
+      item_ids: batch,
+      pagination: { limit: batch.length, start: 0 },
+    });
+    (page.items ?? []).forEach((node) => node.id && itemDetails.set(String(node.id), parseItem(node as ItemNode)));
+  }
+  return ids.map((id) => itemDetails.get(id) ?? minimalItem(id));
+}
+
+/** Item known only by its id (details not loaded, or not found). */
+export const minimalItem = (id: string): Item => ({
+  id,
+  sku: id,
+  name: id,
+  category: '',
+  brand: '',
+  season: '',
+  price: 0,
+  specs: [],
+  source: 'onestock',
+});
+
+export const cachedItem = (id: string) => itemDetails.get(id);
+
+export const useOnestockItems = (c = getOnestockConfig()) => c.useForItems && isOnestockConfigured(c);

@@ -7,7 +7,9 @@ import { body, HttpError, route } from './_lib/db.js';
  * { url, path, method, site_id, token } here and this function performs the call server side.
  * Only the paths below are allowed, so this is not an open proxy.
  */
-const ALLOWED_PATHS = ['/categories', '/endpoints'];
+const ALLOWED_PATHS = ['/categories', '/endpoints', '/v3/items'];
+/** Extra body fields relayed with site_id / token. */
+const ALLOWED_PARAMS = ['pagination', 'item_ids'];
 const TIMEOUT_MS = 15000;
 
 interface ProxyBody {
@@ -16,6 +18,8 @@ interface ProxyBody {
   method?: 'GET' | 'POST';
   site_id: string;
   token: string;
+  /** Extra body fields (pagination, item_ids…). */
+  params?: Record<string, unknown>;
 }
 
 function target(b: ProxyBody): URL {
@@ -71,7 +75,8 @@ export default route({
     const url = target(b);
     let result: { status: number; data: unknown };
     try {
-      result = await call(url, b.method === 'POST' ? 'POST' : 'GET', { site_id: b.site_id, token: b.token });
+      const extra = Object.fromEntries(Object.entries(b.params ?? {}).filter(([k]) => ALLOWED_PARAMS.includes(k)));
+      result = await call(url, b.method === 'POST' ? 'POST' : 'GET', { site_id: b.site_id, token: b.token, ...extra });
     } catch (e) {
       throw new HttpError(502, `OneStock API unreachable: ${(e as Error).message}`);
     }

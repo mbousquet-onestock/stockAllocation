@@ -26,6 +26,7 @@ export function ItemDetailPage() {
   const [pageSize, setPageSize] = useState(25);
   const [editing, setEditing] = useState<StockLineRow | null>(null);
   const [creatingRule, setCreatingRule] = useState(false);
+  const [showAllFeatures, setShowAllFeatures] = useState(false);
   const today = todayIso();
   const navigate = useNavigate();
   // Go back to the list keeping its filters, or to the list when opened directly.
@@ -149,6 +150,31 @@ export function ItemDetailPage() {
           <div className="kpi__value">{summary.totalStock}</div>
         </div>
       </div>
+
+      {item.features && Object.keys(item.features).length > 0 && (
+        <div className="card page">
+          <div className="list-header">
+            <strong>Item characteristics</strong>
+            <span className="muted small">OneStock · {Object.keys(item.features).length} features</span>
+            <span className="grow" />
+            <button type="button" className="link" onClick={() => setShowAllFeatures((v) => !v)}>
+              {showAllFeatures ? 'Show less' : 'Show all'}
+            </button>
+          </div>
+          {item.description && <p className="item-description">{item.description}</p>}
+          <dl className="features">
+            {Object.entries(item.features)
+              .filter(([k]) => !['description', 'image', 'big_images', 'id'].includes(k))
+              .slice(0, showAllFeatures ? undefined : 12)
+              .map(([k, v]) => (
+                <div key={k}>
+                  <dt>{k}</dt>
+                  <dd>{/^https?:\/\//.test(v) ? <a href={v} target="_blank" rel="noreferrer">{v}</a> : v}</dd>
+                </div>
+              ))}
+          </dl>
+        </div>
+      )}
 
       <div className="card page">
         <div className="list-header">

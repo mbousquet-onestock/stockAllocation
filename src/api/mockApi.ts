@@ -1,5 +1,7 @@
 import { itemAttribute } from '../config/attributes';
 import type {
+  Item,
+  StockLocation,
   ItemQuery,
   ItemSortKey,
   ItemSummary,
@@ -15,7 +17,17 @@ import { applyRuleToLine, splitSum, summarize, toRow, unsplit } from '../utils/a
 import { appliesToStockType, byPriority, effectiveRule, matchesCriteria, normalizeText as normalize } from '../utils/rules';
 import { StockTypeTree } from '../utils/stockTypes';
 import { getDbConfig } from './dbConfig';
-import { fetchCategories, fetchEndpoints, getOnestockConfig, isOnestockConfigured } from './onestock';
+import {
+  cachedItem,
+  fetchCategories,
+  fetchEndpoints,
+  fetchItemDetails,
+  fetchItemIndex,
+  getOnestockConfig,
+  isOnestockConfigured,
+  minimalItem,
+  useOnestockItems,
+} from './onestock';
 import { remoteRules } from './remoteRules';
 import { buildRules, buildStockLines, buildStockTypes, ITEMS, LOCATIONS, newLine } from './mockData';
 import type { StockAllocationApi } from './types';
@@ -75,14 +87,37 @@ async function syncRules() {
   if (remote()) remoteCache = await remoteRules.list();
 }
 const linesOf = (itemId: string) => db.lines.filter((l) => l.itemId === itemId);
-const summaries = (): ItemSummary[] => ITEMS.map((item) => summarize(item, linesOf(item.id)));
-const itemOf = (id: string) => ITEMS.find((i) => i.id === id)!;
+// ---------------------------------------------------------------------------
+// Catalog: demo items, or the OneStock items (v3/items) when configured.
+// ---------------------------------------------------------------------------
+
+/** Items of the current catalog (OneStock: every indexed id, with details when already loaded). */
+let catalogCache: Item[] = ITEMS;
+async function loadCatalog(): Promise<Item[]> {
+  if (!useOnestockItems()) return (catalogCache = ITEMS);
+  const ids = await fetchItemIndex();
+  // Items that only exist through imported stock are kept too.
+  const withStock = [...new Set(db.lines.map((l) => l.itemId))].filter((id) => !ITEMS.some((i) => i.id === id));
+  catalogCache = [...new Set([...ids, ...withStock])].map((id) => cachedItem(id) ?? minimalItem(id));
+  return catalogCache;
+}
+const catalog = () => catalogCache;
+const itemOf = (id: string): Item => catalog().find((i) => i.id === id) ?? ITEMS.find((i) => i.id === id) ?? cachedItem(id) ?? minimalItem(id);
+const summaries = (): ItemSummary[] => catalog().map((item) => summarize(item, linesOf(item.id)));
+
+/** Demo locations, plus the OneStock endpoints when configured. */
+async function allLocations(): Promise<StockLocation[]> {
+  const onestock = getOnestockConfig();
+  if (!(onestock.useForLocations && isOnestockConfigured(onestock))) return LOCATIONS;
+  const endpoints = await fetchEndpoints().catch(() => [] as StockLocation[]);
+  return [...LOCATIONS, ...endpoints.filter((e) => !LOCATIONS.some((l) => l.id === e.id))];
+}
 const ruleById = (id: string) => {
   const rule = rules().find((r) => r.id === id);
   if (!rule) throw new Error(`Rule ${id} not found`);
   return rule;
 };
-const matchedItems = (rule: Pick<SegmentationRule, 'criteria'>) => ITEMS.filter((i) => matchesCriteria(i, rule.criteria));
+const matchedItems = (rule: Pick<SegmentationRule, 'criteria'>) => catalog().filter((i) => matchesCriteria(i, rule.criteria));
 
 function sortValue(s: ItemSummary, key: ItemSortKey): string | number {
   switch (key) {
@@ -244,10 +279,11 @@ export const mockApi: StockAllocationApi = {
   // --- Rules
   async listRules(query) {
     const q = normalize(query.search ?? '');
-    await syncRules();
+    await Promise.all([syncRules(), loadCatalog()]);
     const list0 = [...rules()].sort(byPriority).filter((r) => !query.stockTypeId || appliesToStockType(r, query.stockTypeId));
     // A SKU search also lists every rule matching that item (e.g. its category rule).
-    const item = q ? ITEMS.find((i) => i.sku === q) : undefined;
+    const found = q ? catalog().find((i) => normalize(i.sku) === q) : undefined;
+    const item = found?.source === 'onestock' ? (await fetchItemDetails([found.id]))[0] : found;
     const matchesItem = (r: SegmentationRule) => !!item && matchesCriteria(item, r.criteria);
     const matchesText = (r: SegmentationRule) =>
       !q ||
@@ -327,6 +363,7 @@ export const mockApi: StockAllocationApi = {
   },
 
   async previewCriteria(rule) {
+    await loadCatalog();
     const items = matchedItems(rule);
     return delay({ itemCount: items.length, sample: items.slice(0, 5) });
   },
@@ -340,6 +377,13 @@ export const mockApi: StockAllocationApi = {
         .filter((c) => !q || normalize(c.id).includes(q) || normalize(c.label).includes(q))
         .slice(0, 50)
         .map((c) => ({ value: c.id, label: c.label !== c.id ? c.label : undefined }));
+    }
+    if (attribute === 'sku' && useOnestockItems()) {
+      const ids = await fetchItemIndex();
+      return ids
+        .filter((id) => !q || normalize(id).includes(q) || normalize(cachedItem(id)?.name ?? '').includes(q))
+        .slice(0, 50)
+        .map((id) => ({ value: id, label: cachedItem(id)?.name !== id ? cachedItem(id)?.name : undefined }));
     }
     const counts = new Map<string, { label?: string; itemCount: number }>();
     ITEMS.forEach((i) => {
@@ -375,7 +419,7 @@ export const mockApi: StockAllocationApi = {
   },
 
   async applyRulesToCurrentStock(ruleId) {
-    await syncRules();
+    await Promise.all([syncRules(), loadCatalog()]);
     const stats = emptyStats();
     const scope = ruleId ? new Set(matchedItems(ruleById(ruleId)).map((i) => i.id)) : undefined;
     db.lines = db.lines.map((l) => {
@@ -392,10 +436,13 @@ export const mockApi: StockAllocationApi = {
     await syncRules();
     const stats = emptyStats();
     const t = tree();
+    const locations = await allLocations();
+    const onestockItems = useOnestockItems();
     rows.forEach((row, i) => {
       const line = i + 2; // header is line 1
-      const item = ITEMS.find((it) => it.sku === row.sku);
-      const loc = LOCATIONS.find((l) => l.code === row.locationCode);
+      // With OneStock items, any SKU is accepted as an item id.
+      const item = ITEMS.find((it) => it.sku === row.sku) ?? (onestockItems && row.sku ? itemOf(row.sku) : undefined);
+      const loc = locations.find((l) => l.code === row.locationCode || l.id === row.locationCode);
       const type = t.byCode(row.stockTypeCode);
       if (!item) return stats.errors.push(`Line ${line}: unknown SKU "${row.sku}"`);
       if (!loc) return stats.errors.push(`Line ${line}: unknown stock location "${row.locationCode}"`);
@@ -418,6 +465,7 @@ export const mockApi: StockAllocationApi = {
 
   async listItems(query: ItemQuery) {
     if (query.ruleId) await syncRules();
+    await loadCatalog();
     let list = summaries().filter((s) => matchesSearch(query.search ?? '')(s.item));
     if (query.warningType) list = list.filter((s) => s.warnings.includes(query.warningType!));
     if (query.ruleId) {
@@ -426,10 +474,16 @@ export const mockApi: StockAllocationApi = {
     }
     list = sortSummaries(list, query.sort);
     const start = query.page * query.pageSize;
-    return delay({ data: list.slice(start, start + query.pageSize), total: list.length });
+    const page = list.slice(start, start + query.pageSize);
+    if (useOnestockItems()) {
+      const details = await fetchItemDetails(page.map((s) => s.item.id));
+      return { data: page.map((s, i) => ({ ...s, item: details[i] })), total: list.length };
+    }
+    return delay({ data: page, total: list.length });
   },
 
   async getWarningSummary() {
+    await loadCatalog();
     const all = summaries();
     return delay(
       tree()
@@ -440,12 +494,14 @@ export const mockApi: StockAllocationApi = {
 
   async getItemDetail(itemId) {
     await syncRules();
-    const item = ITEMS.find((i) => i.id === itemId);
+    const demo = ITEMS.find((i) => i.id === itemId);
+    const item = demo ?? (useOnestockItems() ? (await fetchItemDetails([itemId]))[0] : undefined);
     if (!item) return fail(`Item ${itemId} not found`);
     const lines = linesOf(itemId);
+    const locations = await allLocations();
     const ref = (r?: SegmentationRule) => (r ? { id: r.id, name: r.name } : undefined);
     const rows = lines.map((l) => {
-      const location = LOCATIONS.find((x) => x.id === l.locationId)!;
+      const location = locations.find((x) => x.id === l.locationId) ?? { id: l.locationId, code: l.locationId, name: l.locationId };
       const rule = l.source.type === 'rule' ? ref(rules().find((r) => r.id === (l.source as { ruleId: string }).ruleId)) : undefined;
       return { ...toRow(location, l), rule, nextRule: ref(effectiveRule(rules(), item, l)) };
     });
@@ -469,6 +525,12 @@ export const mockApi: StockAllocationApi = {
   },
 
   async searchItems(search, limit = 20) {
+    if (useOnestockItems()) {
+      const q = normalize(search);
+      const ids = await fetchItemIndex();
+      const matches = ids.filter((id) => !q || normalize(id).includes(q) || normalize(cachedItem(id)?.name ?? '').includes(q));
+      return fetchItemDetails(matches.slice(0, limit));
+    }
     return delay(ITEMS.filter(matchesSearch(search)).slice(0, limit));
   },
 
