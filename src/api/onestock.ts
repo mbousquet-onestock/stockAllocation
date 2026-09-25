@@ -1,4 +1,5 @@
 import type { Item, StockLocation } from '../types';
+import { logApiCall } from './apiLog';
 import { getDbConfig } from './dbConfig';
 
 /**
@@ -65,6 +66,18 @@ export async function callOnestock<T = unknown>(
 ): Promise<T> {
   const proxy = getDbConfig();
   const base = proxy.apiUrl.replace(/\/+$/, '') || '/api';
+  const started = performance.now();
+  const request = { site_id: config.siteId.trim(), token: config.token.trim(), ...(params ?? {}) };
+  const log = (entry: { ok: boolean; status?: number; response?: unknown; error?: string }) =>
+    logApiCall({
+      at: Date.now(),
+      target: 'OneStock',
+      method,
+      path: `${config.url.trim().replace(/\/+$/, '')}${path}`,
+      request,
+      durationMs: Math.round(performance.now() - started),
+      ...entry,
+    });
   let res: Response;
   try {
     res = await fetch(`${base}/onestock`, {
@@ -73,16 +86,25 @@ export async function callOnestock<T = unknown>(
       body: JSON.stringify({ url: config.url.trim(), path, method, site_id: config.siteId.trim(), token: config.token.trim(), params }),
     });
   } catch {
-    throw new Error(`Proxy unreachable (${base}/onestock)`);
+    const error = `Proxy unreachable (${base}/onestock)`;
+    log({ ok: false, error });
+    throw new Error(error);
   }
   const text = await res.text();
   let payload: { data?: T; error?: string } | undefined;
   try {
     payload = text ? JSON.parse(text) : undefined;
   } catch {
-    throw new Error(`Unexpected answer from the proxy (HTTP ${res.status}): is the application API deployed?`);
+    const error = `Unexpected answer from the proxy (HTTP ${res.status}): is the application API deployed?`;
+    log({ ok: false, status: res.status, error, response: text.slice(0, 2000) });
+    throw new Error(error);
   }
-  if (!res.ok) throw new Error(payload?.error ?? `HTTP ${res.status}`);
+  if (!res.ok) {
+    const error = payload?.error ?? `HTTP ${res.status}`;
+    log({ ok: false, status: res.status, error });
+    throw new Error(error);
+  }
+  log({ ok: true, status: res.status, response: payload?.data });
   return payload?.data as T;
 }
 

@@ -352,3 +352,14 @@ main { padding: 0 40px 100px; }
 .line-search__box input { flex: 1; min-width: 160px; border: none; outline: none; height: 28px; background: none; color: var(--text); }
 .line-search__kind { width: 105px; flex-shrink: 0; }
 .line-search .dropdown { min-width: 560px; } .line-search .dropdown__option .muted.small { white-space: nowrap; }
+
+/* API calls */
+.api-toolbar { margin-bottom: 8px; }
+.api-table td { vertical-align: top; }
+.api-path { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, monospace; font-size: 12px; }
+.nowrap { white-space: nowrap; }
+.api-detail > td { background: #fafafa; }
+.api-detail__blocks { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.json-block { min-width: 0; }
+.json-block__header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.json-block pre { margin: 0; max-height: 360px; overflow: auto; background: #1e1e1e; color: #e6e6e6; padding: 10px; border-radius: var(--radius); font-size: 12px; line-height: 1.4; }

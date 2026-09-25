@@ -41,6 +41,9 @@ npm run build      # typecheck + build de production
   ligne = modification manuelle.
 - **Settings** (`/settings`) → *Stock types* : création, modification, ordre et suppression des types et de leurs groupes.
 - **Settings** → *OneStock API* : URL, site_id, token, langue par défaut ; tests de chargement des catégories, des stock locations, des articles et du stock.
+- **Settings** → *API calls* : journal des appels API (OneStock via le proxy, base de données) avec date, méthode,
+  chemin, statut, durée, résumé du résultat, requête et réponse (JSON, copiables) ; filtres par API, erreurs seules et
+  recherche ; export JSON. Les 300 derniers appels sont gardés dans le navigateur, tokens et clés masqués.
 - **Settings** → *Database* : stockage des règles de segmentation (navigateur ou base Vercel), URL de l'API, clé API,
   test de connexion, initialisation de la base, copie des règles locales vers la base.
 
@@ -121,6 +124,7 @@ api/                   Fonctions serverless Vercel (règles de segmentation en b
 src/
   api/types.ts         Contrat StockAllocationApi (à implémenter côté HTTP)
   api/remoteRules.ts   Client HTTP des fonctions /api ; api/dbConfig.ts : paramètres Settings → Database
+  api/apiLog.ts        Journal des appels API (Settings → API calls)
   api/onestock.ts      Paramètres Settings → OneStock API, appel via le proxy, lecture des catégories, endpoints, articles et stock ; utils/onestockStock.ts : stock_export → lignes de stock
   api/mockApi.ts       Implémentation mockée (données en mémoire + localStorage)
   api/index.ts         Point unique où brancher la vraie API
