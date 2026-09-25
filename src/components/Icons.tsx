@@ -33,9 +33,6 @@ export const TrashIcon = (p: P) => (
 export const CalendarIcon = (p: P) => (
   <svg {...base(p)}><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-2 .9-2 2v14a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11zM7 11h5v5H7z" /></svg>
 );
-export const BellIcon = (p: P) => (
-  <svg {...base(p)}><path d="M12 22c1.1 0 2-.9 2-2h-4a2 2 0 0 0 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z" /></svg>
-);
 export const WarehouseIcon = (p: P) => (
   <svg {...base(p)}><path d="M12 3 2 8v13h6v-8h8v8h6V8L12 3zm-1 16H9v-2h2v2zm0-4H9v-2h2v2zm4 4h-2v-2h2v2z" /></svg>
 );

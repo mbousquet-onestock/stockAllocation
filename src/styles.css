@@ -180,13 +180,7 @@ main { padding: 0 40px 100px; }
 .dropzone input { display: none; }
 .error-list { color: var(--error); font-size: 13px; padding-left: 18px; }
 
-/* Floating bell & toasts */
-.fab { position: fixed; right: 24px; bottom: 24px; width: 60px; height: 60px; border-radius: 50%; border: none; background: var(--primary); color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,.25); cursor: pointer; display: flex; align-items: center; justify-content: center; }
-.fab__count { position: absolute; top: 4px; right: 4px; background: var(--warning); border-radius: 10px; font-size: 11px; padding: 0 6px; line-height: 18px; }
-.notif-panel { position: fixed; right: 24px; bottom: 96px; width: 340px; max-height: 60vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.15); z-index: 5; }
-.notif-panel__header { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border); }
-.notif { display: flex; gap: 10px; padding: 10px 12px; color: inherit; text-decoration: none; border-bottom: 1px solid #f0f0f0; }
-.notif:hover { background: #f7f7f7; }
+/* Toasts */
 .toasts { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 20; }
 .toast { padding: 10px 16px; border-radius: 4px; color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,.2); background: #323232; }
 .toast--success { background: #2e7d32; }

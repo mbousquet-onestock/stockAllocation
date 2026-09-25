@@ -2,7 +2,6 @@ import { BrowserRouter, Navigate, NavLink, Route, Routes } from 'react-router-do
 import { api } from './api';
 import { DataVersionProvider, useDataVersion } from './components/DataVersion';
 import { ResetIcon } from './components/Icons';
-import { NotificationBell } from './components/NotificationBell';
 import { ToastProvider, useToast } from './components/Toast';
 import { ItemDetailPage } from './pages/ItemDetailPage';
 import { ItemListPage } from './pages/ItemListPage';
@@ -52,7 +51,6 @@ function Shell() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
-      <NotificationBell />
     </div>
   );
 }
