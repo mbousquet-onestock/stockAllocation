@@ -331,3 +331,16 @@ main { padding: 0 40px 100px; }
 .preview-table .split-text { flex-wrap: wrap; white-space: normal; gap: 2px 10px; max-width: 230px; }
 .preview-table td .muted.small { word-break: break-all; }
 .preview-table td:first-child { max-width: 200px; }
+
+/* Stock lines: one aligned column per group */
+.table .col-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.table th.col-num .sort-header { justify-content: flex-end; }
+.table .col-group-cell { background: #fafcfc; }
+.table tr.is-clickable:hover td.col-group-cell { background: #f1f5f5; }
+.qty { display: inline-flex; align-items: center; gap: 4px; font-weight: 500; }
+.qty--zero { color: #bdbdbd; font-weight: 400; }
+.qty--warning { color: var(--warning); }
+.col-split { min-width: 140px; }
+.col-split .stack-bar--mini { height: 8px; }
+.split-pct { display: flex; gap: 10px; font-size: 11px; color: var(--muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.table th.col-group-cell, .table th.col-split { font-size: 14px; }

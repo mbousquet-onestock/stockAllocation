@@ -35,7 +35,7 @@ npm run build      # typecheck + build de production
 - **Item allocation** (`/items`) : articles avec du stock en premier (ordre par défaut), recherche avec complétion (nom, SKU), stock de chaque article par segment (colonnes groupées par type principal), alertes
   de seuil, filtre par règle.
 - **Détail article** (`/items/:id`) : totaux par type de stock, lignes de stock (entrepôt × type × purchase order) avec
-  la répartition sur les groupes, la source (règle / manuel / aucune) et la règle du prochain import ; clic sur une
+  une colonne par groupe (A, B…), le non réparti et une barre de répartition en %, la source (règle / manuel / aucune) et la règle du prochain import ; clic sur une
   ligne = modification manuelle.
 - **Settings** (`/settings`) → *Stock types* : création, modification, ordre et suppression des types et de leurs groupes.
 - **Settings** → *OneStock API* : URL, site_id, token, langue par défaut ; tests de chargement des catégories, des stock locations, des articles et du stock.
