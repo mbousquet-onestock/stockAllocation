@@ -537,7 +537,7 @@ export const mockApi: StockAllocationApi = {
   async getItemDetail(itemId) {
     await syncRules();
     const demo = ITEMS.find((i) => i.id === itemId);
-    const item = demo ?? (useOnestockItems() ? (await fetchItemDetails([itemId], { full: true }))[0] : undefined);
+    const item = demo ?? (useOnestockItems() ? (await fetchItemDetails([itemId]))[0] : undefined);
     if (!item) return fail(`Item ${itemId} not found`);
     const [stock, locations] = await Promise.all([stockOf([itemId]), allLocations()]);
     const lines = stock.lines;

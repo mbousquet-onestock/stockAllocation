@@ -51,7 +51,6 @@ export function setOnestockConfig(config: OnestockConfig) {
   endpointsCache = undefined;
   itemIndex = undefined;
   itemDetails.clear();
-  fullDetails.clear();
   try {
     localStorage.removeItem(DETAILS_KEY);
   } catch {
@@ -316,8 +315,6 @@ export function parseItem(node: ItemNode, language = getOnestockConfig().languag
 }
 
 const itemDetails = new Map<string, Item>();
-/** Items whose full features are loaded (the compact cache of the browser has no features). */
-const fullDetails = new Set<string>();
 const DETAIL_BATCH = 25;
 const DETAIL_CONCURRENCY = 4;
 const DETAILS_KEY = 'stock-allocation:onestock-items';
@@ -349,11 +346,10 @@ loadCompactDetails();
 
 /**
  * Item details by id: GET v3/items with { item_ids } (no pagination, as in the API contract), by batches of 25,
- * 4 calls at a time, cached. `full` also requires the complete features (item page).
- * Unknown ids come back as minimal items.
+ * 4 calls at a time, cached. Unknown ids come back as minimal items.
  */
-export async function fetchItemDetails(ids: string[], options: { full?: boolean } = {}): Promise<Item[]> {
-  const missing = [...new Set(ids.filter((id) => !itemDetails.has(id) || (options.full && !fullDetails.has(id))))];
+export async function fetchItemDetails(ids: string[]): Promise<Item[]> {
+  const missing = [...new Set(ids.filter((id) => !itemDetails.has(id)))];
   const batches: string[][] = [];
   for (let i = 0; i < missing.length; i += DETAIL_BATCH) batches.push(missing.slice(i, i + DETAIL_BATCH));
   const run = async () => {
@@ -361,9 +357,7 @@ export async function fetchItemDetails(ids: string[], options: { full?: boolean 
       const page = await callOnestock<ItemsPage>('/v3/items', getOnestockConfig(), { item_ids: batch });
       (page.items ?? []).forEach((node) => {
         if (!node.id) return;
-        const id = String(node.id);
-        itemDetails.set(id, parseItem(node as ItemNode));
-        if ((node as ItemNode).features) fullDetails.add(id);
+        itemDetails.set(String(node.id), parseItem(node as ItemNode));
       });
     }
   };
