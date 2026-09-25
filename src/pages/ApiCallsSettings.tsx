@@ -1,5 +1,6 @@
-import { Fragment, useMemo, useState, useSyncExternalStore } from 'react';
-import { clearApiLog, getApiLog, subscribeApiLog, type ApiLogEntry } from '../api/apiLog';
+import { Fragment, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { fetchDatabaseLog, getApiLog, purgeApiLog, subscribeApiLog, type ApiLogEntry } from '../api/apiLog';
+import { getDbConfig } from '../api/dbConfig';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { DownloadIcon } from '../components/Icons';
 import { useToast } from '../components/Toast';
@@ -30,14 +31,44 @@ function JsonBlock({ title, value }: { title: string; value: unknown }) {
 
 /** Settings → API calls: every call made to OneStock (through the proxy) and to the database, with its result. */
 export function ApiCallsSettings() {
-  const entries = useSyncExternalStore(subscribeApiLog, getApiLog);
+  const local = useSyncExternalStore(subscribeApiLog, getApiLog);
+  const notify = useToast();
+  // History stored in the database when Settings → Database uses the Vercel database.
+  const inDatabase = getDbConfig().mode === 'remote';
+  const PAGE = 100;
+  const [db, setDb] = useState<{ calls: ApiLogEntry[]; total: number; all: number; errors: number; error?: string; loading: boolean }>({
+    calls: [],
+    total: 0,
+    all: 0,
+    errors: 0,
+    loading: inDatabase,
+  });
+  const [dbLimit, setDbLimit] = useState(PAGE);
   const [target, setTarget] = useState<'' | ApiLogEntry['target']>('');
   const [errorsOnly, setErrorsOnly] = useState(false);
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState<number | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
 
+  // Database: server side filters, reloaded when a new call is logged.
+  useEffect(() => {
+    if (!inDatabase) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      setDb((d) => ({ ...d, loading: true }));
+      fetchDatabaseLog({ target, errorsOnly, search, limit: dbLimit, offset: 0 })
+        .then((r) => !cancelled && setDb({ ...r, loading: false }))
+        .catch((e: Error) => !cancelled && setDb((d) => ({ ...d, loading: false, error: e.message })));
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [inDatabase, target, errorsOnly, search, dbLimit, local]);
+
+  const entries = inDatabase ? db.calls : local;
   const list = useMemo(() => {
+    if (inDatabase) return entries;
     const q = search.trim().toLowerCase();
     return entries.filter(
       (e) =>
@@ -45,8 +76,9 @@ export function ApiCallsSettings() {
         (!errorsOnly || !e.ok) &&
         (!q || [e.method, e.path, e.summary ?? '', e.error ?? '', JSON.stringify(e.request ?? '')].join(' ').toLowerCase().includes(q)),
     );
-  }, [entries, target, errorsOnly, search]);
-  const errors = entries.filter((e) => !e.ok).length;
+  }, [entries, target, errorsOnly, search, inDatabase]);
+  const errors = inDatabase ? db.errors : entries.filter((e) => !e.ok).length;
+  const total = inDatabase ? db.total : list.length;
 
   return (
     <div>
@@ -55,8 +87,14 @@ export function ApiCallsSettings() {
           <h2>API calls</h2>
           <p className="muted">
             Every call made by the application to the <strong>OneStock API</strong> (through the proxy) and to the{' '}
-            <strong>database</strong>, with its request and its result. The last 300 calls are kept in this browser; tokens and keys
-            are masked.
+            <strong>database</strong>, with its request and its result; tokens and keys are masked.{' '}
+            {inDatabase ? (
+              <>
+                The history is <strong>stored in the database</strong> (<code>api_calls</code> table).
+              </>
+            ) : (
+              <>The last 300 calls are kept in this browser (use the Vercel database in Settings → Database to keep the history).</>
+            )}
           </p>
         </div>
         <span className="row-actions">
@@ -68,7 +106,7 @@ export function ApiCallsSettings() {
           >
             <DownloadIcon /> Export
           </button>
-          <button type="button" className="btn btn--secondary" disabled={!entries.length} onClick={() => setConfirmClear(true)}>
+          <button type="button" className="btn btn--secondary" disabled={!entries.length && !total} onClick={() => setConfirmClear(true)}>
             Clear
           </button>
         </span>
@@ -85,7 +123,9 @@ export function ApiCallsSettings() {
           <span>Errors only{errors ? ` (${errors})` : ''}</span>
         </label>
         <input className="input grow" placeholder="Search a path, an id, an error…" value={search} onChange={(e) => setSearch(e.target.value)} />
-        <span className="muted small">{plural(list.length, 'call')}</span>
+        <span className="muted small">
+          {inDatabase && db.loading ? 'Loading…' : inDatabase ? `${list.length} / ${plural(total, 'call')}` : plural(total, 'call')}
+        </span>
       </div>
 
       <div className="table-wrap">
@@ -137,7 +177,15 @@ export function ApiCallsSettings() {
             ))}
           </tbody>
         </table>
-        {!list.length && <div className="muted empty">{entries.length ? 'No call matches the filters.' : 'No API call yet.'}</div>}
+        {inDatabase && db.error && <div className="text-error empty">History unavailable: {db.error}</div>}
+        {!list.length && !db.error && <div className="muted empty">{search || target || errorsOnly ? 'No call matches the filters.' : 'No API call yet.'}</div>}
+        {inDatabase && list.length < total && (
+          <div className="empty">
+            <button type="button" className="btn btn--secondary" disabled={db.loading} onClick={() => setDbLimit((l) => l + PAGE)}>
+              Load more ({total - list.length} left)
+            </button>
+          </div>
+        )}
       </div>
 
       {confirmClear && (
@@ -147,11 +195,25 @@ export function ApiCallsSettings() {
           danger
           onClose={() => setConfirmClear(false)}
           onConfirm={() => {
-            clearApiLog();
             setConfirmClear(false);
+            purgeApiLog()
+              .then((n) => {
+                notify(inDatabase ? `History purged: ${plural(n, 'call')} deleted from the database` : 'History cleared', 'info');
+                setDbLimit(PAGE);
+                setDb((d) => ({ ...d, calls: [], total: 0, all: 0, errors: 0 }));
+              })
+              .catch((e: Error) => notify(e.message, 'error'));
           }}
         >
-          <p>Delete the {plural(entries.length, 'logged call')} kept in this browser?</p>
+          <p>
+            {inDatabase ? (
+              <>
+                Purge the <strong>whole history of the database</strong> ({plural(db.all, 'call')}), and the calls kept in this browser?
+              </>
+            ) : (
+              <>Delete the {plural(local.length, 'logged call')} kept in this browser?</>
+            )}
+          </p>
         </ConfirmModal>
       )}
     </div>

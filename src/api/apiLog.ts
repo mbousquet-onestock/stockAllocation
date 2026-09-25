@@ -1,3 +1,5 @@
+import { getDbConfig } from './dbConfig';
+
 /**
  * Journal of the API calls made by the application (OneStock through the proxy, Vercel database),
  * shown in Settings → API calls. Kept in memory and in the browser (last MAX_ENTRIES calls).
@@ -102,10 +104,87 @@ function limit(response: unknown): { value: unknown; truncated: boolean } {
 
 export function logApiCall(entry: Omit<ApiLogEntry, 'id' | 'summary' | 'truncated'>) {
   const { value, truncated } = limit(entry.response);
-  entries = [
-    { ...entry, id: nextId++, request: maskSecrets(entry.request), response: value, truncated, summary: entry.ok ? summarize(entry.response) : undefined },
-    ...entries,
-  ].slice(0, MAX_ENTRIES);
+  const logged: ApiLogEntry = {
+    ...entry,
+    id: nextId++,
+    request: maskSecrets(entry.request),
+    response: value,
+    truncated,
+    summary: entry.ok ? summarize(entry.response) : undefined,
+  };
+  entries = [logged, ...entries].slice(0, MAX_ENTRIES);
   save();
   emit();
+  if (getDbConfig().mode === 'remote') queueForDatabase(logged);
+}
+
+// ---------------------------------------------------------------------------
+// History in the database (when Settings → Database uses the Vercel database)
+// ---------------------------------------------------------------------------
+
+let pending: ApiLogEntry[] = [];
+let flushTimer: ReturnType<typeof setTimeout> | undefined;
+const FLUSH_DELAY_MS = 1500;
+const MAX_PENDING = 1000;
+
+/** Direct call to the history endpoint (not logged itself). */
+async function historyCall<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const config = getDbConfig();
+  const res = await fetch(`${config.apiUrl.replace(/\/+$/, '')}/api-calls${path}`, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...(config.apiKey ? { 'x-api-key': config.apiKey } : {}) },
+  });
+  const payload = await res.json().catch(() => undefined);
+  if (!res.ok) throw new Error((payload as { error?: string })?.error ?? `HTTP ${res.status}`);
+  return payload as T;
+}
+
+function queueForDatabase(entry: ApiLogEntry) {
+  pending = [...pending, entry].slice(-MAX_PENDING);
+  if (!flushTimer) flushTimer = setTimeout(flushToDatabase, FLUSH_DELAY_MS);
+}
+
+/** Sends the pending calls to the database (kept for a later try when it fails). */
+export async function flushToDatabase() {
+  flushTimer = undefined;
+  while (pending.length) {
+    const batch = pending.slice(0, 200);
+    try {
+      await historyCall('', { method: 'POST', body: JSON.stringify({ calls: batch.map(({ id: _id, ...c }) => c) }) });
+      pending = pending.slice(batch.length);
+    } catch {
+      flushTimer = setTimeout(flushToDatabase, 30000);
+      return;
+    }
+  }
+}
+
+export interface ApiLogQuery {
+  target?: string;
+  errorsOnly?: boolean;
+  search?: string;
+  limit: number;
+  offset: number;
+}
+
+/** History stored in the database (latest first). */
+export async function fetchDatabaseLog(q: ApiLogQuery): Promise<{ calls: ApiLogEntry[]; total: number; all: number; errors: number }> {
+  await flushToDatabase();
+  const params = new URLSearchParams({
+    limit: String(q.limit),
+    offset: String(q.offset),
+    ...(q.target ? { target: q.target } : {}),
+    ...(q.errorsOnly ? { errors: 'true' } : {}),
+    ...(q.search?.trim() ? { q: q.search.trim() } : {}),
+  });
+  return historyCall(`?${params}`);
+}
+
+/** Purges the history: database (when used) and browser. */
+export async function purgeApiLog(): Promise<number> {
+  pending = [];
+  let deleted = 0;
+  if (getDbConfig().mode === 'remote') deleted = (await historyCall<{ deleted: number }>('', { method: 'DELETE' })).deleted;
+  clearApiLog();
+  return deleted;
 }

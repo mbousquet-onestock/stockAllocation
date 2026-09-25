@@ -43,7 +43,9 @@ npm run build      # typecheck + build de production
 - **Settings** → *OneStock API* : URL, site_id, token, langue par défaut ; tests de chargement des catégories, des stock locations, des articles et du stock.
 - **Settings** → *API calls* : journal des appels API (OneStock via le proxy, base de données) avec date, méthode,
   chemin, statut, durée, résumé du résultat, requête et réponse (JSON, copiables) ; filtres par API, erreurs seules et
-  recherche ; export JSON. Les 300 derniers appels sont gardés dans le navigateur, tokens et clés masqués.
+  recherche ; export JSON ; tokens et clés masqués. Avec la base Vercel (*Settings → Database*), l'historique est
+  **stocké en base** (table `api_calls`, envoi par lots) et lu depuis la base (filtres côté serveur, « Load more ») ;
+  **Clear purge la table**. Sans base, les 300 derniers appels sont gardés dans le navigateur.
 - **Settings** → *Database* : stockage des règles de segmentation (navigateur ou base Vercel), URL de l'API, clé API,
   test de connexion, initialisation de la base, copie des règles locales vers la base.
 
@@ -58,6 +60,7 @@ Les règles peuvent être stockées dans une base **Postgres (Neon) sur Vercel**
 | GET / POST | `/api/rules` | Liste (par priorité) / création |
 | PUT | `/api/rules` | `{ order: [ids] }` ordre des priorités, ou `{ rules: [...] }` remplacement complet |
 | GET / PUT / DELETE | `/api/rules/:id` | Lecture / modification / suppression |
+| GET / POST / DELETE | `/api/api-calls` | Historique des appels API : lecture (`limit`, `offset`, `target`, `errors`, `q`) / ajout par lots / purge |
 
 Mise en place :
 1. Projet Vercel → *Storage* → *Create Database* → *Neon (Postgres)* → connecter au projet (ajoute `DATABASE_URL`).

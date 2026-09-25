@@ -30,6 +30,23 @@ export async function ensureSchema() {
       updated_at timestamptz not null default now()
     )`;
   await sql()`create index if not exists segmentation_rules_priority_idx on segmentation_rules (priority)`;
+  await sql()`
+    create table if not exists api_calls (
+      id bigserial primary key,
+      at timestamptz not null,
+      target text not null,
+      method text not null,
+      path text not null,
+      status integer,
+      ok boolean not null,
+      duration_ms integer not null default 0,
+      summary text,
+      error text,
+      request jsonb,
+      response jsonb,
+      truncated boolean not null default false
+    )`;
+  await sql()`create index if not exists api_calls_at_idx on api_calls (at desc)`;
 }
 
 export async function schemaReady(): Promise<boolean> {
