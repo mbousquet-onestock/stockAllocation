@@ -2,6 +2,9 @@ import type { StockImportRecord, StockRecord } from '../api/onestock';
 import type { StockLine } from '../types';
 import type { StockTypeTree } from './stockTypes';
 
+/** Stock type of the stock records without type. */
+export const DEFAULT_STOCK_TYPE = 'on_hand';
+
 /**
  * Turns stock_export records into stock lines: one line per item × endpoint × main stock type × purchase order.
  * OneStock stock is already segmented: a record on a group (on_hand_A, Container_B…) is the quantity of that group,
@@ -12,9 +15,11 @@ export function recordsToLines(records: StockRecord[], tree: StockTypeTree): { l
   const lines = new Map<string, StockLine>();
   const unknown = new Set<string>();
   records.forEach((r) => {
-    const type = tree.byCode(r.type ?? '');
+    // No stock type: the default stock type, on_hand.
+    const untyped = !r.type?.trim();
+    const type = tree.byCode(untyped ? DEFAULT_STOCK_TYPE : r.type!);
     if (!type) {
-      unknown.add(r.type || '(empty)');
+      unknown.add(untyped ? `${DEFAULT_STOCK_TYPE} (default, records without type)` : r.type!);
       return;
     }
     const main = type.parentId ? tree.byId(type.parentId)! : type;
@@ -36,7 +41,8 @@ export function recordsToLines(records: StockRecord[], tree: StockTypeTree): { l
       };
       lines.set(id, line);
     }
-    line.remoteTypes![type.id] = r.type;
+    // '' = sent back without type, as read.
+    if (!(type.id in line.remoteTypes!) || !untyped) line.remoteTypes![type.id] = untyped ? '' : r.type!;
     const q = Number(r.quantity) || 0;
     line.quantity += q;
     if (type.parentId) line.split[type.id] = { quantity: (line.split[type.id]?.quantity ?? 0) + q, threshold: null };
@@ -56,14 +62,14 @@ export function recordsToLines(records: StockRecord[], tree: StockTypeTree): { l
  */
 function remoteCode(line: StockLine, typeId: string, tree: StockTypeTree): string {
   const known = line.remoteTypes?.[typeId];
-  if (known) return known;
+  if (known !== undefined) return known;
   const main = tree.byId(line.stockTypeId)!;
   const target = tree.byId(typeId)!;
   const suffix = (code: string) => (code.toLowerCase().startsWith(main.code.toLowerCase()) ? code.slice(main.code.length) : undefined);
   const targetSuffix = suffix(target.code);
   for (const [id, remote] of Object.entries(line.remoteTypes ?? {})) {
     const ownSuffix = suffix(tree.byId(id)?.code ?? '');
-    if (targetSuffix === undefined || ownSuffix === undefined) continue;
+    if (!remote || targetSuffix === undefined || ownSuffix === undefined) continue;
     if (!remote.toLowerCase().endsWith(ownSuffix.toLowerCase())) continue;
     return remote.slice(0, remote.length - ownSuffix.length) + targetSuffix;
   }
@@ -83,12 +89,10 @@ export function lineToRecords(line: StockLine, tree: StockTypeTree): StockImport
   };
   const groups = tree.groupsOf(main.id);
   const split = groups.reduce((s, g) => s + (line.split[g.id]?.quantity ?? 0), 0);
-  const record = (typeId: string, quantity: number): StockImportRecord => ({
-    item_id: line.itemId,
-    endpoint_id: line.locationId,
-    quantity,
-    type: remoteCode(line, typeId, tree),
-    ...extra,
-  });
+  const record = (typeId: string, quantity: number): StockImportRecord => {
+    const type = remoteCode(line, typeId, tree);
+    // A record read without type (default on_hand) is sent back without type.
+    return { item_id: line.itemId, endpoint_id: line.locationId, quantity, ...(type ? { type } : {}), ...extra };
+  };
   return [record(main.id, line.quantity - split), ...groups.map((g) => record(g.id, line.split[g.id]?.quantity ?? 0))];
 }

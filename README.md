@@ -16,7 +16,8 @@ npm run build      # typecheck + build de production
 - **Types de stock** (onglet *Settings*) : types principaux (ex. `on_hand`, `container`, `planned`) divisés en groupes
   (ex. `on_hand_A`, `on_hand_B`). Chaque type et chaque groupe est un **segment**. Un type principal peut être marqué
   « stock futur » (container, planned…) : son stock peut porter un **purchase order**.
-- Un stock est toujours **mis à jour sur un type de stock** (import `sku;location_code;stock_type;quantity;purchase_order`).
+- Un stock est toujours **mis à jour sur un type de stock** (import `sku;location_code;stock_type;quantity;purchase_order`,
+  `stock_type` vide ou absent = `on_hand`, le type par défaut).
   La première règle active (par priorité) correspondant à l'article, au type, à l'entrepôt et au purchase order répartit
   alors la quantité **en pourcentage** sur les groupes du type ; le reste (et l'arrondi) reste sur le type principal.
   Sans règle, tout reste sur le type principal.
@@ -83,7 +84,8 @@ défaut). Quand l'API est configurée, les valeurs du critère **Category** de l
   compte de la casse). Le stock OneStock est déjà segmenté : un enregistrement sur un groupe (`Container_A`) est la
   quantité du groupe, un enregistrement sur le type principal (`Container`) ce qui reste dessus. Les lignes affichées
   (article × endpoint × type principal × purchase order) sont en lecture seule ; les seuils viennent de la règle qui
-  s'appliquerait. Les types non configurés sont signalés et ignorés.
+  s'appliquerait. Les types non configurés sont signalés et ignorés. Un enregistrement **sans type** (ou type vide) est
+  affecté à `on_hand`, le type de stock par défaut, et renvoyé sans type au `stock_import`.
   Les quantités affichées (liste et détail) viennent toujours d'appels filtrés par `item_filter.ids`. Pour mettre les
   articles avec du stock en premier : jusqu'à 250 articles (ex. après une recherche), totaux exacts par ces mêmes appels ;
   au-delà, un appel `stock_export` sans `item_filter` (tout l'export, cache 2 min) sert uniquement à l'ordre, corrigé par

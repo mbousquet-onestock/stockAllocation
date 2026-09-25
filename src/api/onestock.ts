@@ -329,8 +329,8 @@ export interface StockRecord {
   item_id: string;
   endpoint_id: string;
   quantity: number;
-  /** Stock type code, main type (on_hand, Container…) or group (on_hand_A, Container_B…). */
-  type: string;
+  /** Stock type code, main type (on_hand, Container…) or group (on_hand_A, Container_B…); absent = on_hand. */
+  type?: string;
   eta_start?: number;
   eta_end?: number;
   purchase_order_number?: string;
@@ -422,7 +422,8 @@ export interface StockImportRecord {
   item_id: string;
   endpoint_id: string;
   quantity: number;
-  type: string;
+  /** Omitted: default stock type (on_hand). */
+  type?: string;
   purchase_order_number?: string;
   eta_start?: number;
   eta_end?: number;

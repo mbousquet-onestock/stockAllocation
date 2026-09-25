@@ -10,7 +10,8 @@ export function downloadText(filename: string, content: string) {
 }
 
 export const STOCK_HEADERS = ['sku', 'location_code', 'stock_type', 'quantity', 'purchase_order'];
-const REQUIRED = ['sku', 'location_code', 'stock_type', 'quantity'];
+/** stock_type is optional: empty or missing = on_hand, the default stock type. */
+const REQUIRED = ['sku', 'location_code', 'quantity'];
 
 /** Parses a stock file: one line per item, stock location, stock type (and purchase order for future stock). */
 export function parseStockCsv(text: string): { rows: StockImportRow[]; errors: string[] } {
@@ -33,7 +34,7 @@ export function parseStockCsv(text: string): { rows: StockImportRow[]; errors: s
     rows.push({
       sku: get('sku'),
       locationCode: get('location_code'),
-      stockTypeCode: get('stock_type'),
+      stockTypeCode: get('stock_type') || 'on_hand',
       quantity,
       purchaseOrder: get('purchase_order') || null,
     });

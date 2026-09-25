@@ -110,12 +110,12 @@ export function OnestockSettings() {
       let ids = stockIds.split(/[\s,;]+/).filter(Boolean);
       if (!ids.length) ids = ((await fetchItemsPage({ limit: 10, start: 0 }, config)).items ?? []).map((i) => String(i.id));
       const records = await fetchStock(ids, config, true);
-      const types = [...new Set(records.map((r) => r.type))].sort();
+      const types = [...new Set(records.map((r) => r.type?.trim() || 'on_hand (no type)'))].sort();
       setStock({
         records: records.length,
         items: new Set(records.map((r) => r.item_id)).size,
         types,
-        unknown: types.filter((t) => !tree.byCode(t)),
+        unknown: types.filter((t) => !tree.byCode(t.replace(' (no type)', ''))),
       });
     } catch (e) {
       setStock({ error: (e as Error).message });
