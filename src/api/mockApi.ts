@@ -109,8 +109,8 @@ function validateRule(rule: RuleInput) {
   if (!types.some((type) => t.groupsOf(type.id).length)) throw new Error('No targeted stock type has groups to split the stock onto');
   if (!rule.criteria.length || rule.criteria.some((c) => !c.values.length))
     throw new Error('Each criterion needs at least one value');
-  if (rule.purchaseOrders.length && !types.some((type) => type.future))
-    throw new Error('Purchase orders are only allowed on future stock types');
+  if (rule.purchaseOrders.length && !(rule.stockTypeIds.length === 1 && t.byId(rule.stockTypeIds[0])?.future))
+    throw new Error('Purchase orders can only be entered for a single future stock type');
   types.forEach((type) => {
     if (t.groupsOf(type.id).reduce((s, g) => s + (rule.shares[g.id] ?? 0), 0) > 100)
       throw new Error(`${type.label}: the sum of percentages cannot exceed 100 %`);
@@ -188,9 +188,9 @@ export const mockApi: StockAllocationApi = {
     if (type.parentId === null) {
       type.future = input.future;
       db.stockTypes.filter((t) => t.parentId === id).forEach((g) => (g.future = input.future));
-      // Rules restricted to purchase orders need at least one future stock type left.
+      // Purchase orders are only allowed on a future stock type.
       if (!input.future)
-        db.rules.filter((r) => r.purchaseOrders.length && !targetedTypes(r).some((m) => m.future)).forEach((r) => (r.purchaseOrders = []));
+        db.rules.filter((r) => r.purchaseOrders.length && r.stockTypeIds.includes(id)).forEach((r) => (r.purchaseOrders = []));
     }
     persist();
     return delay(type);

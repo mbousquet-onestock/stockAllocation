@@ -37,6 +37,7 @@ export function RuleEditorModal({
   const [enabled, setEnabled] = useState(src?.enabled ?? true);
   const [criteria, setCriteria] = useState<Criterion[]>(src?.criteria ?? [{ attribute: 'category', values: [] }]);
   const [stockTypeIds, setStockTypeIds] = useState<string[]>(src?.stockTypeIds ?? []); // [] = all
+  const [specificTypes, setSpecificTypes] = useState(stockTypeIds.length > 0);
   const [purchaseOrders, setPurchaseOrders] = useState<string[]>(src?.purchaseOrders ?? []);
   const [locationIds, setLocationIds] = useState<string[]>(src?.locationIds ?? []); // [] = all
   const [specificLocations, setSpecificLocations] = useState(locationIds.length > 0);
@@ -55,9 +56,10 @@ export function RuleEditorModal({
   const preview = useAsync(() => api.previewCriteria({ criteria }), [criteriaKey]);
 
   const allTypes = tree.mainTypes.map((t) => t.id);
-  const targeted = tree.mainTypes.filter((t) => stockTypeIds.length === 0 || stockTypeIds.includes(t.id));
+  const targeted = tree.mainTypes.filter((t) => !specificTypes || stockTypeIds.includes(t.id));
   const targetedGroups = targeted.flatMap((t) => tree.groupsOf(t.id));
-  const anyFuture = targeted.some((t) => t.future);
+  /** Purchase orders only make sense on one future stock type. */
+  const poAllowed = specificTypes && targeted.length === 1 && targeted[0].future;
   const numericShares = Object.fromEntries(targetedGroups.map((g) => [g.id, num(shares[g.id] ?? '')]));
   const typeTotal = (typeId: string) => tree.groupsOf(typeId).reduce((s, g) => s + (numericShares[g.id] ?? 0), 0);
   const valuesValid = targetedGroups.every((g) => isInt(shares[g.id] ?? '') && isInt(thresholds[g.id] ?? ''));
@@ -65,11 +67,6 @@ export function RuleEditorModal({
   const criteriaValid = criteria.length > 0 && criteria.every((c) => c.values.length > 0);
   const valid = !!name.trim() && targeted.length > 0 && (!specificLocations || locationIds.length > 0) && criteriaValid && valuesValid && sharesValid && isPeriodValid(period);
 
-  const toggleType = (id: string, checked: boolean) => {
-    const current = stockTypeIds.length ? stockTypeIds : allTypes;
-    const next = checked ? [...current, id] : current.filter((x) => x !== id);
-    setStockTypeIds(next.length === allTypes.length ? [] : next);
-  };
   /** Group suffix (e.g. "A" for on_hand_A), used to copy a split between stock types. */
   const suffix = (groupCode: string, parentCode: string) =>
     groupCode.toLowerCase().startsWith(parentCode.toLowerCase()) ? groupCode.slice(parentCode.length).replace(/^[_-]/, '') : groupCode;
@@ -99,8 +96,8 @@ export function RuleEditorModal({
       name: name.trim(),
       enabled,
       criteria,
-      stockTypeIds,
-      purchaseOrders: anyFuture ? purchaseOrders : [],
+      stockTypeIds: specificTypes ? stockTypeIds : [],
+      purchaseOrders: poAllowed ? purchaseOrders : [],
       locationIds,
       shares: numericShares,
       thresholds: Object.fromEntries(targetedGroups.map((g) => [g.id, (thresholds[g.id] ?? '').trim() === '' ? null : Number(thresholds[g.id])])),
@@ -175,42 +172,46 @@ export function RuleEditorModal({
       <div className="panel form-stack">
         <div className="field">
           <span className="field__label">Stock types — the rule applies when the stock of these types is updated</span>
-          <div className="inline-checks">
-            <Checkbox
-              checked={stockTypeIds.length === 0}
-              onChange={(checked) => setStockTypeIds(checked ? [] : allTypes.slice(0, 1))}
-              label={<strong>All stock types</strong>}
-            />
-            {tree.mainTypes.map((t) => (
-              <Checkbox
-                key={t.id}
-                checked={stockTypeIds.length === 0 || stockTypeIds.includes(t.id)}
-                onChange={(checked) => toggleType(t.id, checked)}
-                label={
-                  <>
-                    {t.label} <code>{t.code}</code>
-                    {t.future && <span className="badge badge--future">future</span>}
-                  </>
-                }
+          <Checkbox
+            checked={!specificTypes}
+            onChange={(all) => {
+              setSpecificTypes(!all);
+              if (all) setStockTypeIds([]);
+            }}
+            label={<strong>All stock types</strong>}
+          />
+          {specificTypes ? (
+            <>
+              <ValuesInput
+                values={stockTypeIds}
+                onChange={setStockTypeIds}
+                load={async (q) => {
+                  const query = normalizeText(q);
+                  return tree.mainTypes
+                    .filter((t) => !query || normalizeText(`${t.label} ${t.code}`).includes(query))
+                    .map((t) => ({ value: t.id, label: `${t.code}${t.future ? ' · future stock' : ''}` }));
+                }}
+                loadKey={allTypes.join()}
+                display={(id) => tree.label(id)}
+                allowFree={false}
+                placeholder="Search a stock type by label or code…"
               />
-            ))}
-            {targeted.length === 0 && <span className="text-error small">Select at least one stock type.</span>}
-          </div>
-          {stockTypeIds.length === 0 && (
+              {stockTypeIds.length === 0 && <span className="text-error small">Select at least one stock type.</span>}
+            </>
+          ) : (
             <span className="muted small">Stock types added later in the settings will also be targeted.</span>
           )}
         </div>
-        {anyFuture ? (
+        {poAllowed ? (
           <label className="field">
             <span className="field__label">
-              Purchase orders — restrict the rule to these purchase orders (empty = any). With purchase orders, the rule only applies to
-              future stock.
+              Purchase orders of {targeted[0].label} — restrict the rule to these purchase orders (empty = any purchase order)
             </span>
             <ValuesInput
               values={purchaseOrders}
               onChange={setPurchaseOrders}
-              load={(q) => api.listPurchaseOrders(targeted.filter((t) => t.future).map((t) => t.id), q)}
-              loadKey={targeted.map((t) => t.id).join()}
+              load={(q) => api.listPurchaseOrders([targeted[0].id], q)}
+              loadKey={targeted[0].id}
               placeholder="Any purchase order — type a PO number and press Enter"
             />
             {purchaseOrders.length > 0 && (
@@ -220,7 +221,10 @@ export function RuleEditorModal({
             )}
           </label>
         ) : (
-          <span className="muted small">Purchase order restriction is only available when a future stock type (e.g. Container, Planned) is selected.</span>
+          <span className={`small ${purchaseOrders.length ? 'text-warning' : 'muted'}`}>
+            Purchase orders can only be entered when the rule targets a single future stock type (e.g. Container or Planned).
+            {purchaseOrders.length > 0 && ` The ${plural(purchaseOrders.length, 'purchase order')} entered will be removed on save.`}
+          </span>
         )}
         <div className="field">
           <span className="field__label">Stock locations</span>
