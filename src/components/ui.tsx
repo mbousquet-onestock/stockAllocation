@@ -3,9 +3,9 @@ import type { Item } from '../types';
 import { CloseIcon, SortIcon, WarningIcon, ChevronLeftIcon, ChevronRightIcon } from './Icons';
 import { formatPrice } from '../utils/format';
 
-export function QtyBadge({ value, warning, tone }: { value: number | string; warning?: boolean; tone?: 'success' }) {
+export function QtyBadge({ value, warning, tone, muted }: { value: number | string; warning?: boolean; tone?: 'success'; muted?: boolean }) {
   return (
-    <span className={`badge ${warning ? 'badge--warning' : tone ? `badge--${tone}` : ''}`}>
+    <span className={`badge ${warning ? 'badge--warning' : tone ? `badge--${tone}` : muted ? 'badge--zero' : ''}`}>
       {warning && <WarningIcon width={12} height={12} />}
       {value}
     </span>

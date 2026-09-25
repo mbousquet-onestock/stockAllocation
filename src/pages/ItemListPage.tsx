@@ -4,10 +4,10 @@ import { api } from '../api';
 import { useDataVersion } from '../components/DataVersion';
 import { CloseIcon, DownloadIcon, WarningIcon } from '../components/Icons';
 import { Checkbox, ItemIdentity, Pagination, QtyBadge, SortHeader, Spinner } from '../components/ui';
-import { SEGMENTS, segmentLabel } from '../config/segments';
+import { useStockTypes } from '../components/StockTypes';
 import { RuleEditorModal } from '../features/RuleEditorModal';
 import { StockImportModal } from '../features/StockImportModal';
-import type { Item, ItemSortKey, SegmentId, Sort } from '../types';
+import type { Item, ItemSortKey, Sort } from '../types';
 import { plural } from '../utils/format';
 import { useAsync, useDebounced } from '../utils/useAsync';
 
@@ -18,7 +18,9 @@ export function ItemListPage() {
   const search = params.get('q') ?? '';
   const page = Number(params.get('page') ?? 0);
   const pageSize = Number(params.get('size') ?? 25);
-  const warningSegment = (params.get('warning') as SegmentId | null) ?? undefined;
+  const warningType = params.get('warning') ?? undefined;
+  const tree = useStockTypes();
+  const segments = tree.ordered;
   const ruleId = params.get('rule') ?? undefined;
   const sortParam = params.get('sort');
   const sort: Sort<ItemSortKey> | undefined = sortParam
@@ -42,8 +44,8 @@ export function ItemListPage() {
   }, [debouncedSearch]);
 
   const list = useAsync(
-    () => api.listItems({ search, page, pageSize, sort, warningSegment, ruleId }),
-    [search, page, pageSize, sortParam, warningSegment, ruleId, version],
+    () => api.listItems({ search, page, pageSize, sort, warningType, ruleId }),
+    [search, page, pageSize, sortParam, warningType, ruleId, version],
   );
   const rule = useAsync(() => (ruleId ? api.getRule(ruleId) : Promise.resolve(undefined)), [ruleId, version]);
   const warnings = useAsync(() => api.getWarningSummary(), [version]);
@@ -105,12 +107,12 @@ export function ItemListPage() {
           {(warnings.data ?? []).map((w) => (
             <button
               type="button"
-              key={w.segment}
-              className={`chip chip--warning ${warningSegment === w.segment ? 'is-active' : ''}`}
-              onClick={() => update({ warning: warningSegment === w.segment ? undefined : w.segment, page: undefined })}
+              key={w.stockTypeId}
+              className={`chip chip--warning ${warningType === w.stockTypeId ? 'is-active' : ''}`}
+              onClick={() => update({ warning: warningType === w.stockTypeId ? undefined : w.stockTypeId, page: undefined })}
             >
               <WarningIcon width={12} height={12} />
-              {plural(w.itemCount, 'item')} - Below threshold – {segmentLabel(w.segment)}
+              {plural(w.itemCount, 'item')} - Below threshold – {tree.code(w.stockTypeId)}
             </button>
           ))}
         </div>
@@ -138,21 +140,28 @@ export function ItemListPage() {
       <div className="table-wrap">
         <table className="table">
           <thead>
+            <tr className="table__group-row">
+              <th colSpan={3} />
+              {tree.mainTypes.map((m) => (
+                <th key={m.id} colSpan={tree.family(m.id).length} className="col-group">
+                  {m.label}
+                  {m.future && <span className="badge badge--future">future</span>}
+                </th>
+              ))}
+              <th colSpan={2} />
+            </tr>
             <tr>
               <th className="col-check" />
               <th className="col-dot" />
-              <th>
+              <th className="col-item">
                 <SortHeader label="item" sortKey="item" sort={sort} onSort={onSort} />
               </th>
-              {SEGMENTS.map((s) => (
-                <th key={s.id}>
-                  <SortHeader label={s.label} sortKey={s.id} sort={sort} onSort={onSort} />
+              {segments.map((t) => (
+                <th key={t.id} className={t.parentId === null ? 'col-group-start' : ''} title={t.label}>
+                  <SortHeader label={t.code} sortKey={t.id} sort={sort} onSort={onSort} />
                 </th>
               ))}
-              <th>
-                <SortHeader label="Non allocated" sortKey="nonAllocated" sort={sort} onSort={onSort} />
-              </th>
-              <th>
+              <th className="col-group-start">
                 <SortHeader label="Total stock" sortKey="totalStock" sort={sort} onSort={onSort} />
               </th>
               <th>
@@ -170,15 +179,12 @@ export function ItemListPage() {
                 <td>
                   <ItemIdentity item={r.item} />
                 </td>
-                {SEGMENTS.map((s) => (
-                  <td key={s.id}>
-                    <QtyBadge value={r.totals[s.id]} warning={r.warnings.includes(s.id)} />
+                {segments.map((t) => (
+                  <td key={t.id} className={t.parentId === null ? 'col-group-start' : ''}>
+                    <QtyBadge value={r.totals[t.id] ?? 0} warning={r.warnings.includes(t.id)} muted={!r.totals[t.id]} />
                   </td>
                 ))}
-                <td>
-                  <QtyBadge value={r.nonAllocated} />
-                </td>
-                <td>
+                <td className="col-group-start">
                   <QtyBadge value={r.totalStock} />
                 </td>
                 <td>

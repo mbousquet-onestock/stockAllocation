@@ -6,20 +6,27 @@ import type { AttributeKey, Criterion } from '../types';
 import { plural } from '../utils/format';
 import { useAsync, useDebounced } from '../utils/useAsync';
 
-/** Multi-value input with suggestions from the existing values of an item characteristic. */
-function ValuesInput({
-  attribute,
+type Option = { value: string; label?: string; itemCount: number };
+
+/** Multi-value input with suggestions (existing values of an item characteristic, purchase orders…). */
+export function ValuesInput({
   values,
   onChange,
+  load,
+  loadKey,
+  placeholder,
 }: {
-  attribute: AttributeKey;
   values: string[];
   onChange: (values: string[]) => void;
+  load: (search: string) => Promise<Option[]>;
+  /** Changes when the suggestion source changes. */
+  loadKey: string;
+  placeholder: string;
 }) {
   const [text, setText] = useState('');
   const [open, setOpen] = useState(false);
   const debounced = useDebounced(text, 150);
-  const suggestions = useAsync(() => api.listAttributeValues(attribute, debounced), [attribute, debounced]);
+  const suggestions = useAsync(() => load(debounced), [loadKey, debounced]);
   const add = (v: string) => {
     const value = v.trim();
     if (value && !values.includes(value)) onChange([...values, value]);
@@ -40,7 +47,7 @@ function ValuesInput({
         ))}
         <input
           value={text}
-          placeholder={values.length ? '' : `Choose ${attributeLabel(attribute).toLowerCase()} values…`}
+          placeholder={values.length ? '' : placeholder}
           onFocus={() => setOpen(true)}
           onChange={(e) => {
             setText(e.target.value);
@@ -94,7 +101,13 @@ export function CriteriaEditor({ criteria, onChange }: { criteria: Criterion[]; 
             ))}
           </select>
           <span className="criteria__op">is</span>
-          <ValuesInput attribute={c.attribute} values={c.values} onChange={(values) => update(i, { values })} />
+          <ValuesInput
+            values={c.values}
+            onChange={(values) => update(i, { values })}
+            load={(q) => api.listAttributeValues(c.attribute, q)}
+            loadKey={c.attribute}
+            placeholder={`Choose ${attributeLabel(c.attribute).toLowerCase()} values…`}
+          />
           <button
             type="button"
             className="icon-btn"

@@ -7,6 +7,9 @@ import { ToastProvider, useToast } from './components/Toast';
 import { ItemDetailPage } from './pages/ItemDetailPage';
 import { ItemListPage } from './pages/ItemListPage';
 import { RulesPage } from './pages/RulesPage';
+import { SettingsPage } from './pages/SettingsPage';
+import { StockTypesProvider } from './components/StockTypes';
+import { SettingsIcon } from './components/Icons';
 
 function Shell() {
   const { bump } = useDataVersion();
@@ -20,6 +23,9 @@ function Shell() {
             Segmentation rules
           </NavLink>
           <NavLink to="/items">Item allocation</NavLink>
+          <NavLink to="/settings">
+            <SettingsIcon /> Settings
+          </NavLink>
         </nav>
         <span className="grow" />
         {api.reset && (
@@ -42,6 +48,7 @@ function Shell() {
           <Route path="/" element={<RulesPage />} />
           <Route path="/items" element={<ItemListPage />} />
           <Route path="/items/:itemId" element={<ItemDetailPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
@@ -55,7 +62,9 @@ export default function App() {
     <BrowserRouter basename={import.meta.env.BASE_URL}>
       <ToastProvider>
         <DataVersionProvider>
-          <Shell />
+          <StockTypesProvider>
+            <Shell />
+          </StockTypesProvider>
         </DataVersionProvider>
       </ToastProvider>
     </BrowserRouter>

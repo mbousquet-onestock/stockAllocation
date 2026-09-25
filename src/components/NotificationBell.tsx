@@ -1,16 +1,17 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { segmentLabel } from '../config/segments';
 import { plural } from '../utils/format';
 import { useAsync } from '../utils/useAsync';
 import { useDataVersion } from './DataVersion';
 import { BellIcon, CloseIcon, WarningIcon } from './Icons';
+import { useStockTypes } from './StockTypes';
 
 /** Floating bell listing the items below their threshold. */
 export function NotificationBell() {
   const { version } = useDataVersion();
   const [open, setOpen] = useState(false);
+  const tree = useStockTypes();
   const items = useAsync(
     () => api.listItems({ page: 0, pageSize: 100, sort: { key: 'item', direction: 'asc' } }).then((p) => p.data.filter((s) => s.warnings.length)),
     [version],
@@ -32,7 +33,7 @@ export function NotificationBell() {
               <WarningIcon className="text-warning" />
               <div>
                 <div>{s.item.name}</div>
-                <div className="muted small">Below threshold – {s.warnings.map(segmentLabel).join(', ')}</div>
+                <div className="muted small">Below threshold – {s.warnings.map((w) => tree.code(w)).join(', ')}</div>
               </div>
             </Link>
           ))}

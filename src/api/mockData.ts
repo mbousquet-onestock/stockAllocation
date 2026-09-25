@@ -1,7 +1,7 @@
-import { segmentRecord } from '../config/segments';
-import type { Allocation, Item, SegmentationRule, StockLocation } from '../types';
-import { applyRuleToAllocation, unallocated } from '../utils/allocation';
+import type { Item, SegmentationRule, StockLine, StockLocation, StockType } from '../types';
+import { applyRuleToLine, unsplit } from '../utils/allocation';
 import { effectiveRule } from '../utils/rules';
+import { StockTypeTree } from '../utils/stockTypes';
 
 export const LOCATIONS: StockLocation[] = [
   { id: 'loc-0001', code: '0001', name: 'Alençon' },
@@ -58,96 +58,120 @@ ITEMS[0].sku = '1082108010944';
 ITEMS[1].sku = '1082108010906';
 ITEMS[2].sku = '1082108010913';
 
-const pct = (brand_site: number, marketplace: number, social: number) => ({ brand_site, marketplace, social });
-const noThresholds = segmentRecord<number | null>(() => null);
+export function buildStockTypes(): StockType[] {
+  const main = (id: string, label: string, future: boolean, position: number): StockType => ({
+    id,
+    code: id,
+    label,
+    parentId: null,
+    future,
+    position,
+  });
+  const group = (parent: StockType, suffix: string, position: number): StockType => ({
+    id: `${parent.id}_${suffix}`,
+    code: `${parent.code}_${suffix}`,
+    label: `${parent.label} ${suffix}`,
+    parentId: parent.id,
+    future: parent.future,
+    position,
+  });
+  const mains = [main('on_hand', 'On hand', false, 1), main('container', 'Container', true, 2), main('planned', 'Planned', true, 3)];
+  return mains.flatMap((m) => [m, group(m, 'A', 1), group(m, 'B', 2)]);
+}
+
+const shares = (a: number, b: number, prefix: string) => ({ [`${prefix}_A`]: a, [`${prefix}_B`]: b });
 const skuOf = (name: string) => ITEMS.find((i) => i.name === name)!.sku;
 
 export function buildRules(): SegmentationRule[] {
   const updatedAt = '2026-09-15T09:00:00.000Z';
+  const base = { enabled: true, purchaseOrders: [], locationIds: [], thresholds: {}, period: { type: 'always' as const }, updatedAt };
   return [
     {
+      ...base,
       id: 'rule-1',
       name: 'Cookeo+ Connect launch',
       priority: 1,
-      enabled: true,
       criteria: [{ attribute: 'sku', values: [skuOf('Cookeo+ Connect')] }],
-      locationIds: [],
-      mode: 'quantity',
-      values: pct(100, 50, 20),
-      thresholds: { brand_site: 20, marketplace: 10, social: 5 },
+      stockTypeId: 'on_hand',
+      shares: shares(70, 20, 'on_hand'),
+      thresholds: { on_hand_A: 20 },
       period: { type: 'range', start: '2026-09-01', end: '2026-12-31' },
-      updatedAt,
     },
     {
+      ...base,
       id: 'rule-2',
-      name: 'Calor irons – marketplace push',
+      name: 'Air fryers – PO-2026-0042 reserved to group A',
       priority: 2,
-      enabled: true,
+      criteria: [{ attribute: 'category', values: ['Air fryers'] }],
+      stockTypeId: 'container',
+      purchaseOrders: ['PO-2026-0042'],
+      shares: shares(100, 0, 'container'),
+    },
+    {
+      ...base,
+      id: 'rule-3',
+      name: 'Calor irons',
+      priority: 3,
       criteria: [
         { attribute: 'category', values: ['Irons'] },
         { attribute: 'brand', values: ['Calor'] },
       ],
-      locationIds: [],
-      mode: 'percentage',
-      values: pct(30, 40, 10),
-      thresholds: noThresholds,
-      period: { type: 'always' },
-      updatedAt,
+      stockTypeId: 'on_hand',
+      shares: shares(40, 40, 'on_hand'),
     },
     {
-      id: 'rule-3',
-      name: 'Air fryers',
-      priority: 3,
-      enabled: true,
-      criteria: [{ attribute: 'category', values: ['Air fryers'] }],
-      locationIds: [],
-      mode: 'percentage',
-      values: pct(50, 20, 10),
-      thresholds: { brand_site: 20, marketplace: null, social: null },
-      period: { type: 'always' },
-      updatedAt,
-    },
-    {
+      ...base,
       id: 'rule-4',
-      name: 'Vacuum cleaners – Alençon',
+      name: 'Air fryers',
       priority: 4,
-      enabled: true,
-      criteria: [{ attribute: 'category', values: ['Vacuum cleaners'] }],
-      locationIds: ['loc-0001'],
-      mode: 'quantity',
-      values: pct(30, 20, 10),
-      thresholds: { brand_site: 10, marketplace: 10, social: 5 },
-      period: { type: 'always' },
-      updatedAt,
+      criteria: [{ attribute: 'category', values: ['Air fryers'] }],
+      stockTypeId: 'on_hand',
+      shares: shares(50, 30, 'on_hand'),
+      thresholds: { on_hand_A: 20 },
     },
     {
+      ...base,
       id: 'rule-5',
-      name: 'AW26 collection',
+      name: 'Air fryers – containers',
       priority: 5,
-      enabled: true,
-      criteria: [{ attribute: 'season', values: ['AW26'] }],
-      locationIds: [],
-      mode: 'percentage',
-      values: pct(40, 30, 20),
-      thresholds: noThresholds,
-      period: { type: 'range', start: '2026-09-01', end: '2027-02-28' },
-      updatedAt,
+      criteria: [{ attribute: 'category', values: ['Air fryers'] }],
+      stockTypeId: 'container',
+      shares: shares(50, 50, 'container'),
     },
     {
+      ...base,
       id: 'rule-6',
-      name: 'Cookware – social test',
+      name: 'Vacuum cleaners – Alençon',
       priority: 6,
+      criteria: [{ attribute: 'category', values: ['Vacuum cleaners'] }],
+      stockTypeId: 'on_hand',
+      locationIds: ['loc-0001'],
+      shares: shares(60, 20, 'on_hand'),
+      thresholds: { on_hand_A: 10, on_hand_B: 10 },
+    },
+    {
+      ...base,
+      id: 'rule-7',
+      name: 'AW26 collection – planned',
+      priority: 7,
+      criteria: [{ attribute: 'season', values: ['AW26'] }],
+      stockTypeId: 'planned',
+      shares: shares(60, 40, 'planned'),
+      period: { type: 'range', start: '2026-09-01', end: '2027-02-28' },
+    },
+    {
+      ...base,
+      id: 'rule-8',
+      name: 'Cookware – test',
+      priority: 8,
       enabled: false,
       criteria: [
         { attribute: 'category', values: ['Cookware'] },
         { attribute: 'brand', values: ['Tefal'] },
       ],
+      stockTypeId: 'on_hand',
       locationIds: ['loc-0001', 'loc-0003'],
-      mode: 'percentage',
-      values: pct(20, 0, 30),
-      thresholds: noThresholds,
-      period: { type: 'always' },
-      updatedAt,
+      shares: shares(20, 30, 'on_hand'),
     },
   ];
 }
@@ -161,50 +185,63 @@ function rng(seed: number) {
   };
 }
 
-const seg = (quantity: number, threshold: number | null = null) => ({ quantity, threshold });
+const g = (quantity: number, threshold: number | null = null) => ({ quantity, threshold });
+const lineId = (itemId: string, locationId: string, typeId: string, po: string | null) =>
+  [itemId, locationId, typeId, po ?? ''].join('|');
 
-/** Manually segmented allocations, values from the mockups. */
-function mockupAllocations(item: Item): Allocation[] {
-  const base = (locationId: string, totalStock: number, b: number, m: number, s: number): Allocation => ({
-    itemId: item.id,
+export function newLine(itemId: string, locationId: string, stockTypeId: string, purchaseOrder: string | null, quantity: number): StockLine {
+  return {
+    id: lineId(itemId, locationId, stockTypeId, purchaseOrder),
+    itemId,
     locationId,
-    totalStock,
+    stockTypeId,
+    purchaseOrder,
+    quantity,
+    split: {},
     period: { type: 'always' },
-    segments: { brand_site: seg(b), marketplace: seg(m), social: seg(s) },
+    source: { type: 'none' },
+  };
+}
+
+/** Manually segmented on hand stock, values from the mockups. */
+function mockupLines(item: Item): StockLine[] {
+  const manual = (locationId: string, quantity: number, a: number, b: number): StockLine => ({
+    ...newLine(item.id, locationId, 'on_hand', null, quantity),
+    split: { on_hand_A: g(a), on_hand_B: g(b) },
     source: { type: 'manual' },
   });
-  const rows = [
-    base('loc-0001', 1000, 300, 100, 50),
-    base('loc-0002', 400, 200, 50, 50),
-    base('loc-0003', 200, 100, 0, 0),
-  ];
+  const rows = [manual('loc-0001', 1000, 300, 100), manual('loc-0002', 400, 200, 50), manual('loc-0003', 200, 100, 0)];
   if (item.id === 'item-001') {
     rows[1] = {
-      ...base('loc-0002', 305, 5, 50, 50),
+      ...manual('loc-0002', 305, 5, 50),
       period: { type: 'range', start: '2026-02-11', end: '2026-06-13' },
-      segments: { brand_site: seg(5, 10), marketplace: seg(50, 10), social: seg(50, 10) },
+      split: { on_hand_A: g(5, 10), on_hand_B: g(50, 10) },
     };
-    rows[2] = base('loc-0003', 200, 200, 0, 0);
+    rows[2] = manual('loc-0003', 200, 200, 0);
   }
   return rows;
 }
 
-/** Initial stock, segmented as a stock import would have done with the rules. */
-export function buildAllocations(rules: SegmentationRule[]): Allocation[] {
+const PURCHASE_ORDERS = ['PO-2026-0042', 'PO-2026-0057', 'PO-2026-0063'];
+
+/** Initial stock, split as the stock updates would have done with the rules. */
+export function buildStockLines(rules: SegmentationRule[], types: StockType[]): StockLine[] {
   const random = rng(42);
+  const tree = new StockTypeTree(types);
+  const segment = (item: Item, line: StockLine) => {
+    const rule = effectiveRule(rules, item, line);
+    return rule ? applyRuleToLine(line, rule, tree) : unsplit(line);
+  };
   return ITEMS.flatMap((item, i) => {
-    if (i < 3) return mockupAllocations(item);
-    return LOCATIONS.map((loc) => {
-      const stock: Allocation = {
-        itemId: item.id,
-        locationId: loc.id,
-        totalStock: Math.round(random() * 60) * 10,
-        period: { type: 'always' },
-        segments: segmentRecord(() => seg(0)),
-        source: { type: 'none' },
-      };
-      const rule = effectiveRule(rules, item, loc.id);
-      return rule ? applyRuleToAllocation(stock, rule).allocation : unallocated(stock);
+    const lines: StockLine[] = i < 3 ? mockupLines(item) : LOCATIONS.map((loc) => newLine(item.id, loc.id, 'on_hand', null, Math.round(random() * 60) * 10));
+    // Future stock on some items / locations.
+    LOCATIONS.forEach((loc) => {
+      if (random() > 0.6) {
+        const po = PURCHASE_ORDERS[Math.floor(random() * PURCHASE_ORDERS.length)];
+        lines.push(newLine(item.id, loc.id, 'container', po, Math.round(random() * 30 + 5) * 10));
+      }
+      if (random() > 0.75) lines.push(newLine(item.id, loc.id, 'planned', null, Math.round(random() * 20 + 5) * 10));
     });
+    return lines.map((l) => (l.source.type === 'manual' ? l : segment(item, l)));
   });
 }

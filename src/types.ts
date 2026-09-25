@@ -1,10 +1,6 @@
-/** Identifier of a sales segment (channel) stock can be allocated to. */
-export type SegmentId = 'brand_site' | 'marketplace' | 'social';
-
-export interface Segment {
-  id: SegmentId;
-  label: string;
-}
+// ---------------------------------------------------------------------------
+// Catalog
+// ---------------------------------------------------------------------------
 
 export interface Item {
   id: string;
@@ -25,59 +21,94 @@ export interface StockLocation {
   name: string;
 }
 
+// ---------------------------------------------------------------------------
+// Settings: stock types
+// ---------------------------------------------------------------------------
+
+/**
+ * A stock type is also a segment. Main types (no parent, e.g. on_hand, container, planned)
+ * can be divided into groups (children, e.g. on_hand_A, on_hand_B).
+ * Stock is always updated on one stock type, then split onto its groups by the segmentation rules.
+ */
+export interface StockType {
+  id: string;
+  /** Technical code used in files and APIs (e.g. on_hand_A). */
+  code: string;
+  label: string;
+  /** null for a main stock type. */
+  parentId: string | null;
+  /** Future stock (container, planned…): can carry a purchase order. Set on main types, inherited by groups. */
+  future: boolean;
+  /** Display order among siblings. */
+  position: number;
+}
+
+export type StockTypeInput = Pick<StockType, 'code' | 'label' | 'parentId' | 'future'>;
+
+// ---------------------------------------------------------------------------
+// Stock & allocation
+// ---------------------------------------------------------------------------
+
 export type ActivationPeriod =
   | { type: 'always' }
   | { type: 'range'; start: string; end: string }; // ISO dates (yyyy-mm-dd)
 
-export interface SegmentAllocation {
+export interface GroupAllocation {
   quantity: number;
   /** Alert threshold: a warning is raised when quantity < threshold. */
   threshold: number | null;
 }
 
-/** Segmentation of one item's stock in one stock location. */
-export interface Allocation {
-  itemId: string;
-  locationId: string;
-  totalStock: number;
-  period: ActivationPeriod;
-  segments: Record<SegmentId, SegmentAllocation>;
-  /** What produced the current segmentation. */
-  source: AllocationSource;
-}
-
 export type AllocationSource =
   | { type: 'rule'; ruleId: string }
   | { type: 'manual' }
-  /** No rule matched at the last stock import: everything stays non allocated. */
+  /** No rule matched at the last stock update: the whole quantity stays on the main stock type. */
   | { type: 'none' };
 
-export type SegmentTotals = Record<SegmentId, number>;
+/**
+ * Stock of an item, in a location, on a stock type (and purchase order for future stock).
+ * `split` holds the quantities moved to the groups of the stock type; the rest stays on the type itself.
+ */
+export interface StockLine {
+  id: string;
+  itemId: string;
+  locationId: string;
+  stockTypeId: string;
+  purchaseOrder: string | null;
+  quantity: number;
+  split: Record<string, GroupAllocation>; // by group stock type id
+  period: ActivationPeriod;
+  source: AllocationSource;
+}
+
+/** Quantities by stock type id (main types = remaining after split, groups = split quantities). */
+export type TypeTotals = Record<string, number>;
 
 export interface ItemSummary {
   item: Item;
-  totals: SegmentTotals;
-  nonAllocated: number;
+  totals: TypeTotals;
   totalStock: number;
+  /** Number of stock types (segments) holding stock. */
   activeSegments: number;
-  /** Segments where at least one location is below its threshold. */
-  warnings: SegmentId[];
+  /** Stock type ids where at least one line is below its threshold. */
+  warnings: string[];
 }
 
-export interface LocationRow {
+export interface StockLineRow {
+  line: StockLine;
   location: StockLocation;
-  allocation: Allocation;
-  /** Rule that produced the allocation (when source is a rule). */
+  /** Quantity left on the main stock type after split. */
+  remaining: number;
+  warnings: string[];
+  /** Rule that produced the split (when source is a rule). */
   rule?: { id: string; name: string };
-  nonAllocated: number;
-  warnings: SegmentId[];
+  /** Rule the next stock update of this line would use. */
+  nextRule?: { id: string; name: string };
 }
 
 export interface ItemDetail {
   summary: ItemSummary;
-  rows: LocationRow[];
-  /** Rule the next stock import would use, per location id. */
-  effectiveRules: Record<string, { id: string; name: string } | undefined>;
+  rows: StockLineRow[];
 }
 
 export type SortDirection = 'asc' | 'desc';
@@ -91,12 +122,13 @@ export interface Page<T> {
   total: number;
 }
 
-export type ItemSortKey = 'item' | SegmentId | 'nonAllocated' | 'totalStock' | 'activeSegments';
+/** 'item' | 'totalStock' | 'activeSegments' | a stock type id. */
+export type ItemSortKey = string;
 
 export interface ItemQuery {
   search?: string;
-  /** Only items below threshold for this segment. */
-  warningSegment?: SegmentId;
+  /** Only items below threshold for this stock type (group). */
+  warningType?: string;
   /** Only items matched by this rule's criteria. */
   ruleId?: string;
   sort?: Sort<ItemSortKey>;
@@ -105,9 +137,13 @@ export interface ItemQuery {
 }
 
 export interface WarningSummary {
-  segment: SegmentId;
+  stockTypeId: string;
   itemCount: number;
 }
+
+// ---------------------------------------------------------------------------
+// Segmentation rules
+// ---------------------------------------------------------------------------
 
 /** Item characteristics a rule can be defined on. */
 export type AttributeKey = 'sku' | 'category' | 'brand' | 'season';
@@ -118,10 +154,8 @@ export interface Criterion {
   values: string[];
 }
 
-export type RuleMode = 'percentage' | 'quantity';
-
 /**
- * Segmentation rule, applied when the stock of a matching item is imported.
+ * Segmentation rule, applied when the stock of a matching item is updated on `stockTypeId`.
  * All criteria must match (AND); several values in one criterion are alternatives (OR).
  * When several rules match, the one with the lowest priority number wins.
  */
@@ -131,12 +165,15 @@ export interface SegmentationRule {
   priority: number;
   enabled: boolean;
   criteria: Criterion[];
+  /** Main stock type whose stock is split. */
+  stockTypeId: string;
+  /** Future stock types only: restricts the rule to these purchase orders (empty = any). */
+  purchaseOrders: string[];
   /** Empty = all stock locations. */
   locationIds: string[];
-  mode: RuleMode;
-  /** Percentage (0-100) or fixed quantity per location, by segment. */
-  values: Record<SegmentId, number>;
-  thresholds: Record<SegmentId, number | null>;
+  /** Percentage (0-100) of the stock moved to each group of the stock type. */
+  shares: Record<string, number>;
+  thresholds: Record<string, number | null>;
   period: ActivationPeriod;
   updatedAt: string; // ISO date-time
 }
@@ -152,6 +189,7 @@ export interface RuleQuery {
   search?: string;
   /** Restrict the search to one characteristic. */
   attribute?: AttributeKey;
+  stockTypeId?: string;
   page: number;
   pageSize: number;
 }
@@ -159,8 +197,8 @@ export interface RuleQuery {
 export interface RulePage extends Page<RuleSummary> {
   /** Number of rules without search filter (last priority). */
   ruleCount: number;
-  /** Set when the search is an item SKU: rules matching that item, the effective one first. */
-  matchedItem?: { item: Item; effectiveRuleId?: string };
+  /** Set when the search is an item SKU: the item, rules matching it are listed. */
+  matchedItem?: { item: Item; effectiveRuleIds: string[] };
 }
 
 export interface RulePreview {
@@ -171,26 +209,14 @@ export interface RulePreview {
 export interface StockImportRow {
   sku: string;
   locationCode: string;
+  stockTypeCode: string;
   quantity: number;
+  purchaseOrder: string | null;
 }
 
 export interface StockImportResult {
   updated: number;
   byRule: number;
   withoutRule: number;
-  /** Allocations where fixed quantities exceeded the stock and were capped. */
-  capped: number;
-  errors: string[];
-}
-
-export interface ImportRow {
-  sku: string;
-  locationCode: string;
-  segments: Partial<Record<SegmentId, SegmentAllocation>>;
-  period?: ActivationPeriod;
-}
-
-export interface ImportResult {
-  updated: number;
   errors: string[];
 }

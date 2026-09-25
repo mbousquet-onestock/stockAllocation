@@ -7,7 +7,8 @@ import { ArrowDownIcon, ArrowUpIcon, CopyIcon, DownloadIcon, PlayIcon, TrashIcon
 import { useToast } from '../components/Toast';
 import { ItemIdentity, Pagination, Spinner } from '../components/ui';
 import { ATTRIBUTES, attributeLabel } from '../config/attributes';
-import { SEGMENTS } from '../config/segments';
+import { useStockTypes } from '../components/StockTypes';
+import { SplitBar } from '../features/SplitBar';
 import { RuleEditorModal } from '../features/RuleEditorModal';
 import { StockImportModal } from '../features/StockImportModal';
 import type { AttributeKey, RuleInput, SegmentationRule, StockLocation } from '../types';
@@ -23,28 +24,28 @@ type ModalState =
   | null;
 
 function RuleAllocation({ rule }: { rule: SegmentationRule }) {
-  const unit = rule.mode === 'percentage' ? '%' : ' pcs';
-  const total = SEGMENTS.reduce((s, seg) => s + rule.values[seg.id], 0);
+  const tree = useStockTypes();
+  const main = tree.byId(rule.stockTypeId);
+  const groups = tree.groupsOf(rule.stockTypeId);
+  const total = groups.reduce((s, g) => s + (rule.shares[g.id] ?? 0), 0);
+  if (!main) return <span className="text-error small">Unknown stock type</span>;
   return (
     <div className="rule-alloc">
       <div className="rule-alloc__values">
-        {SEGMENTS.map((seg, i) => (
-          <span key={seg.id} title={seg.label}>
-            <i className={`legend seg-${i}`} />
-            {rule.values[seg.id]}
-            {unit}
+        {groups.map((g, i) => (
+          <span key={g.id} title={g.label}>
+            <i className={`legend seg-${i % 4}`} />
+            {g.code} {rule.shares[g.id] ?? 0}%
           </span>
         ))}
+        {total < 100 && (
+          <span className="muted" title={`Stays on ${main.label}`}>
+            <i className="legend seg-rest" />
+            {main.code} {100 - total}%
+          </span>
+        )}
       </div>
-      {rule.mode === 'percentage' && (
-        <div className="stack-bar stack-bar--mini">
-          {SEGMENTS.map((seg, i) =>
-            rule.values[seg.id] > 0 ? <span key={seg.id} className={`stack-bar__part seg-${i}`} style={{ flex: rule.values[seg.id] }} /> : null,
-          )}
-          {total < 100 && <span className="stack-bar__part seg-rest" style={{ flex: 100 - total }} />}
-        </div>
-      )}
-      {rule.mode === 'quantity' && <span className="muted small">fixed per location</span>}
+      <SplitBar main={main} groups={groups} quantities={rule.shares} total={100} mini />
     </div>
   );
 }
@@ -58,6 +59,8 @@ export function RulesPage() {
   const [params, setParams] = useSearchParams();
   const search = params.get('q') ?? '';
   const attribute = (params.get('attr') as AttributeKey | null) ?? undefined;
+  const stockTypeId = params.get('type') ?? undefined;
+  const tree = useStockTypes();
   const page = Number(params.get('page') ?? 0);
   const pageSize = Number(params.get('size') ?? 25);
   const [searchInput, setSearchInput] = useState(search);
@@ -75,7 +78,7 @@ export function RulesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch]);
 
-  const list = useAsync(() => api.listRules({ search, attribute, page, pageSize }), [search, attribute, page, pageSize, version]);
+  const list = useAsync(() => api.listRules({ search, attribute, stockTypeId, page, pageSize }), [search, attribute, stockTypeId, page, pageSize, version]);
   const locations = useAsync(() => api.listLocations(), []);
   const rows = list.data?.data ?? [];
   const matched = list.data?.matchedItem;
@@ -115,9 +118,17 @@ export function RulesPage() {
             </option>
           ))}
         </select>
+        <select className="select" value={stockTypeId ?? ''} onChange={(e) => update({ type: e.target.value || undefined, page: undefined })} aria-label="Stock type">
+          <option value="">All stock types</option>
+          {tree.mainTypes.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.label}
+            </option>
+          ))}
+        </select>
         <input
           className="input grow"
-          placeholder={attribute ? `Search a ${attributeLabel(attribute).toLowerCase()}` : 'Search a rule, SKU, category, brand, season…'}
+          placeholder={attribute ? `Search a ${attributeLabel(attribute).toLowerCase()}` : 'Search a rule, SKU, category, brand, season, purchase order…'}
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
         />
@@ -133,8 +144,9 @@ export function RulesPage() {
       </div>
 
       <p className="muted small hint">
-        Rules are applied at stock import, by priority: for each item and stock location, the first enabled rule whose
-        characteristics all match computes the segmentation.
+        Rules are applied when the stock of an item is updated on a stock type, by priority: the first enabled rule matching the
+        item characteristics, the stock type, the location (and the purchase order for future stock) splits the stock onto the groups
+        of the type, in percentage.
       </p>
 
       {matched && (
@@ -142,8 +154,12 @@ export function RulesPage() {
           <ItemIdentity item={matched.item} />
           <span className="grow" />
           <span>
-            Effective rule:{' '}
-            <strong>{rows.find((r) => r.rule.id === matched.effectiveRuleId)?.rule.name ?? (matched.effectiveRuleId ? '—' : 'none')}</strong>
+            Rules used by its current stock:{' '}
+            <strong>
+              {matched.effectiveRuleIds.length
+                ? matched.effectiveRuleIds.map((id) => rows.find((r) => r.rule.id === id)?.rule.name ?? id).join(', ')
+                : 'none'}
+            </strong>
           </span>
           <Link className="btn btn--secondary" to={`/items/${matched.item.id}`}>
             See allocation
@@ -162,19 +178,11 @@ export function RulesPage() {
           <thead>
             <tr>
               <th className="col-priority">Priority</th>
-              <th>Rule</th>
+              <th className="col-rule">Rule</th>
               <th>Item characteristics</th>
+              <th>Stock type</th>
               <th>Stock locations</th>
-              <th>
-                Allocation
-                <div className="legend-row">
-                  {SEGMENTS.map((s, i) => (
-                    <span key={s.id}>
-                      <i className={`legend seg-${i}`} /> {s.label}
-                    </span>
-                  ))}
-                </div>
-              </th>
+              <th>Split</th>
               <th>Activation period</th>
               <th>Items</th>
               <th className="col-actions" />
@@ -183,7 +191,8 @@ export function RulesPage() {
           <tbody className={list.loading ? 'is-loading' : ''}>
             {rows.map(({ rule, matchedItemCount }) => {
               const active = rule.period.type === 'always' || (rule.period.start <= today && today <= rule.period.end);
-              const isEffective = matched?.effectiveRuleId === rule.id;
+              const isEffective = !!matched?.effectiveRuleIds.includes(rule.id);
+              const type = tree.byId(rule.stockTypeId);
               return (
                 <tr
                   key={rule.id}
@@ -225,6 +234,21 @@ export function RulesPage() {
                         </span>
                       ))}
                     </div>
+                  </td>
+                  <td>
+                    <div className="stock-type-cell">
+                      {type?.label ?? rule.stockTypeId} <code>{type?.code}</code>
+                    </div>
+                    {rule.purchaseOrders.length > 0 && (
+                      <div className="criteria-chips">
+                        {rule.purchaseOrders.map((po) => (
+                          <span className="chip chip--po" key={po}>
+                            PO {po}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {type?.future && rule.purchaseOrders.length === 0 && <span className="muted small">Any purchase order</span>}
                   </td>
                   <td>{locationNames(rule.locationIds, locations.data ?? [])}</td>
                   <td>

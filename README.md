@@ -13,27 +13,28 @@ npm run build      # typecheck + build de production
 
 ## Principe
 
-Des **règles de segmentation** sont définies sur des caractéristiques de la fiche article (SKU, catégorie, marque,
-saison…). Lors de l'**import du stock** d'un article, pour chaque entrepôt, la première règle active (par priorité) dont
-tous les critères correspondent calcule la répartition, en **pourcentage** du stock ou en **quantité fixe** par entrepôt.
-Sans règle correspondante, tout le stock reste non alloué.
-
-- Critères : ET entre caractéristiques, OU entre les valeurs d'une même caractéristique
-  (ex. `Catégorie ∈ {Irons} ET Marque ∈ {Calor}`).
-- Pourcentages arrondis à l'inférieur, le reste est non alloué ; quantités fixes plafonnées au stock, dans l'ordre des segments.
+- **Types de stock** (onglet *Settings*) : types principaux (ex. `on_hand`, `container`, `planned`) divisés en groupes
+  (ex. `on_hand_A`, `on_hand_B`). Chaque type et chaque groupe est un **segment**. Un type principal peut être marqué
+  « stock futur » (container, planned…) : son stock peut porter un **purchase order**.
+- Un stock est toujours **mis à jour sur un type de stock** (import `sku;location_code;stock_type;quantity;purchase_order`).
+  La première règle active (par priorité) correspondant à l'article, au type, à l'entrepôt et au purchase order répartit
+  alors la quantité **en pourcentage** sur les groupes du type ; le reste (et l'arrondi) reste sur le type principal.
+  Sans règle, tout reste sur le type principal.
+- Critères des règles : ET entre caractéristiques (SKU, catégorie, marque, saison), OU entre les valeurs d'une même
+  caractéristique. Restriction par purchase order uniquement sur les types de stock futurs.
 
 ## Écrans
 
-- **Segmentation rules** (`/`, écran principal) : recherche des règles par caractéristique (sélecteur + texte).
-  Une recherche par SKU liste toutes les règles qui s'appliquent à l'article (y compris via sa catégorie, sa marque…)
-  et indique la règle effective. Tableau : priorité (réordonnable), critères, entrepôts, répartition, période, nombre
-  d'articles concernés (lien vers leur allocation), activation, duplication, suppression.
-  Actions : **New segmentation rule**, **Stock import** (CSV `sku;location_code;quantity`, applique les règles),
-  **Apply rules** (re-segmente le stock actuel).
-- **Item allocation** (`/items`) : recherche d'un article et visualisation de son allocation (écran existant), filtre
-  par règle, création d'une règle pour les articles sélectionnés.
-- **Détail article** (`/items/:id`) : allocation par entrepôt, source (règle / manuel / aucune), règle qui sera appliquée
-  au prochain import ; clic sur une ligne = modification manuelle (**Edit segmentation**) ; import CSV de segmentation.
+- **Segmentation rules** (`/`) : recherche des règles par caractéristique, type de stock ou purchase order. Une recherche
+  par SKU liste toutes les règles qui s'appliquent à l'article et met en évidence celles utilisées par son stock.
+  Tableau : priorité (réordonnable), critères, type de stock + purchase orders, entrepôts, répartition en %, période,
+  articles concernés, activation, duplication, suppression. Actions : nouvelle règle, **Stock import**, **Apply rules**.
+- **Item allocation** (`/items`) : stock de chaque article par segment (colonnes groupées par type principal), alertes
+  de seuil, filtre par règle.
+- **Détail article** (`/items/:id`) : totaux par type de stock, lignes de stock (entrepôt × type × purchase order) avec
+  la répartition sur les groupes, la source (règle / manuel / aucune) et la règle du prochain import ; clic sur une
+  ligne = modification manuelle.
+- **Settings** (`/settings`) → *Stock types* : création, modification, ordre et suppression des types et de leurs groupes.
 
 ## Architecture
 
@@ -42,11 +43,11 @@ src/
   api/types.ts         Contrat StockAllocationApi (à implémenter côté HTTP)
   api/mockApi.ts       Implémentation mockée (données en mémoire + localStorage)
   api/index.ts         Point unique où brancher la vraie API
-  config/segments.ts   Liste des segments (sera fournie par l'API)
-  utils/allocation.ts  Règles métier : non alloué, alertes, calcul d'une règle
+  utils/stockTypes.ts  Hiérarchie des types de stock (types principaux → groupes)
+  utils/allocation.ts  Répartition d'une ligne de stock, alertes, totaux par segment
   config/attributes.ts Caractéristiques article utilisables dans les critères
   utils/rules.ts       Correspondance article ↔ critères, règle effective
-  pages/               Règles, liste des articles, détail
+  pages/               Règles, liste des articles, détail, paramétrage
   features/            Éditeur de règle, édition manuelle, imports
 ```
 

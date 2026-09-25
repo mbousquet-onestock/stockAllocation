@@ -1,17 +1,20 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { api } from '../api';
 import { Checkbox, Modal } from '../components/ui';
 import { TrashIcon } from '../components/Icons';
+import { useStockTypes } from '../components/StockTypes';
 import { useToast } from '../components/Toast';
-import { SEGMENTS, segmentRecord } from '../config/segments';
-import type { ActivationPeriod, Criterion, RuleInput, RuleMode, SegmentId, SegmentationRule } from '../types';
-import { computeQuantities } from '../utils/allocation';
+import type { ActivationPeriod, Criterion, RuleInput, SegmentationRule } from '../types';
+import { computeSplit } from '../utils/allocation';
 import { plural } from '../utils/format';
 import { useAsync } from '../utils/useAsync';
-import { CriteriaEditor } from './CriteriaEditor';
+import { CriteriaEditor, ValuesInput } from './CriteriaEditor';
 import { isPeriodValid, PeriodField } from './PeriodField';
+import { SplitBar } from './SplitBar';
 
 const EXAMPLE_STOCK = 100;
+const isInt = (v: string) => v.trim() === '' || /^\d+$/.test(v.trim());
+const num = (v: string) => (v.trim() === '' ? 0 : Number(v));
 
 export function RuleEditorModal({
   rule,
@@ -27,17 +30,20 @@ export function RuleEditorModal({
   onSaved: (rule: SegmentationRule) => void;
 }) {
   const notify = useToast();
+  const tree = useStockTypes();
+  const splittable = tree.mainTypes.filter((t) => tree.groupsOf(t.id).length > 0);
   const src = rule ?? initial;
   const [name, setName] = useState(src?.name ?? '');
   const [enabled, setEnabled] = useState(src?.enabled ?? true);
   const [criteria, setCriteria] = useState<Criterion[]>(src?.criteria ?? [{ attribute: 'category', values: [] }]);
+  const [stockTypeId, setStockTypeId] = useState(src?.stockTypeId ?? splittable[0]?.id ?? '');
+  const [purchaseOrders, setPurchaseOrders] = useState<string[]>(src?.purchaseOrders ?? []);
   const [locationIds, setLocationIds] = useState<string[]>(src?.locationIds ?? []); // [] = all
-  const [mode, setMode] = useState<RuleMode>(src?.mode ?? 'percentage');
-  const [values, setValues] = useState<Record<SegmentId, string>>(() =>
-    segmentRecord((id) => (src?.values ? String(src.values[id]) : '')),
+  const [shares, setShares] = useState<Record<string, string>>(() =>
+    Object.fromEntries(Object.entries(src?.shares ?? {}).map(([k, v]) => [k, String(v)])),
   );
-  const [thresholds, setThresholds] = useState<Record<SegmentId, string>>(() =>
-    segmentRecord((id) => (src?.thresholds?.[id] != null ? String(src.thresholds[id]) : '')),
+  const [thresholds, setThresholds] = useState<Record<string, string>>(() =>
+    Object.fromEntries(Object.entries(src?.thresholds ?? {}).map(([k, v]) => [k, v == null ? '' : String(v)])),
   );
   const [period, setPeriod] = useState<ActivationPeriod>(src?.period ?? { type: 'always' });
   const [applyNow, setApplyNow] = useState(false);
@@ -47,23 +53,15 @@ export function RuleEditorModal({
   const criteriaKey = JSON.stringify(criteria);
   const preview = useAsync(() => api.previewCriteria({ criteria }), [criteriaKey]);
 
-  const num = (v: string) => (v.trim() === '' ? 0 : Number(v));
-  const isInt = (v: string) => v.trim() === '' || /^\d+$/.test(v.trim());
-  const numericValues = segmentRecord((id) => num(values[id]));
-  const total = SEGMENTS.reduce((s, seg) => s + numericValues[seg.id], 0);
-  const valuesValid = SEGMENTS.every((s) => isInt(values[s.id]) && isInt(thresholds[s.id]));
-  const percentValid = mode === 'quantity' || total <= 100;
+  const mainType = tree.byId(stockTypeId);
+  const groups = tree.groupsOf(stockTypeId);
+  const numericShares = Object.fromEntries(groups.map((g) => [g.id, num(shares[g.id] ?? '')]));
+  const total = groups.reduce((s, g) => s + numericShares[g.id], 0);
+  const valuesValid = groups.every((g) => isInt(shares[g.id] ?? '') && isInt(thresholds[g.id] ?? ''));
   const criteriaValid = criteria.length > 0 && criteria.every((c) => c.values.length > 0);
   const allLocations = (locations.data ?? []).map((l) => l.id);
-
-  const valid = !!name.trim() && criteriaValid && valuesValid && percentValid && total > 0 && isPeriodValid(period);
-
-  const example = useMemo(
-    () => computeQuantities(EXAMPLE_STOCK, { mode, values: numericValues }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mode, values],
-  );
-  const exampleRest = EXAMPLE_STOCK - SEGMENTS.reduce((s, seg) => s + example.quantities[seg.id], 0);
+  const valid = !!name.trim() && !!mainType && criteriaValid && valuesValid && total <= 100 && total > 0 && isPeriodValid(period);
+  const example = computeSplit(EXAMPLE_STOCK, numericShares, groups.map((g) => g.id));
 
   const toggleLocation = (id: string, checked: boolean) => {
     const current = locationIds.length ? locationIds : allLocations;
@@ -76,10 +74,11 @@ export function RuleEditorModal({
       name: name.trim(),
       enabled,
       criteria,
+      stockTypeId,
+      purchaseOrders: mainType?.future ? purchaseOrders : [],
       locationIds,
-      mode,
-      values: numericValues,
-      thresholds: segmentRecord((id) => (thresholds[id].trim() === '' ? null : Number(thresholds[id]))),
+      shares: numericShares,
+      thresholds: Object.fromEntries(groups.map((g) => [g.id, (thresholds[g.id] ?? '').trim() === '' ? null : Number(thresholds[g.id])])),
       period,
     };
     setSaving(true);
@@ -98,7 +97,6 @@ export function RuleEditorModal({
     }
   };
 
-  const unit = mode === 'percentage' ? '%' : 'pcs';
   const selectedCount = locationIds.length || allLocations.length;
 
   return (
@@ -149,57 +147,86 @@ export function RuleEditorModal({
         </div>
       </div>
 
-      <h3 className="section-title">2. Stock locations</h3>
-      <div className="panel inline-checks">
-        {(locations.data ?? []).map((l) => (
-          <Checkbox
-            key={l.id}
-            checked={locationIds.length === 0 || locationIds.includes(l.id)}
-            onChange={(checked) => toggleLocation(l.id, checked)}
-            label={
-              <>
-                {l.name} <span className="muted">{l.code}</span>
-              </>
-            }
-          />
-        ))}
-        {selectedCount === 0 && <span className="text-error small">Select at least one stock location.</span>}
+      <h3 className="section-title">2. Stock to segment</h3>
+      <div className="panel form-stack">
+        <label className="field">
+          <span className="field__label">Main stock type — the rule applies when the stock of this type is updated</span>
+          <select className="select" value={stockTypeId} onChange={(e) => setStockTypeId(e.target.value)}>
+            {splittable.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.label} ({t.code}) → {tree.groupsOf(t.id).map((g) => g.code).join(', ')}
+                {t.future ? ' · future stock' : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+        {mainType?.future ? (
+          <label className="field">
+            <span className="field__label">Purchase orders — restrict the rule to these purchase orders (empty = any purchase order)</span>
+            <ValuesInput
+              values={purchaseOrders}
+              onChange={setPurchaseOrders}
+              load={(q) => api.listPurchaseOrders(stockTypeId, q)}
+              loadKey={stockTypeId}
+              placeholder="Any purchase order — type a PO number and press Enter"
+            />
+            {purchaseOrders.length > 0 && (
+              <span className="muted small">
+                Rules are applied by priority: keep this rule above the rules of the same stock type without purchase order.
+              </span>
+            )}
+          </label>
+        ) : (
+          <span className="muted small">Purchase order restriction is only available for future stock types (e.g. Container, Planned).</span>
+        )}
+        <div className="field">
+          <span className="field__label">Stock locations</span>
+          <div className="inline-checks">
+            {(locations.data ?? []).map((l) => (
+              <Checkbox
+                key={l.id}
+                checked={locationIds.length === 0 || locationIds.includes(l.id)}
+                onChange={(checked) => toggleLocation(l.id, checked)}
+                label={
+                  <>
+                    {l.name} <span className="muted">{l.code}</span>
+                  </>
+                }
+              />
+            ))}
+            {selectedCount === 0 && <span className="text-error small">Select at least one stock location.</span>}
+          </div>
+        </div>
       </div>
 
-      <h3 className="section-title">3. Allocation</h3>
-      <div className="segmented-control">
-        <button type="button" className={mode === 'percentage' ? 'is-active' : ''} onClick={() => setMode('percentage')}>
-          Percentage of stock
-        </button>
-        <button type="button" className={mode === 'quantity' ? 'is-active' : ''} onClick={() => setMode('quantity')}>
-          Fixed quantity per location
-        </button>
-      </div>
+      <h3 className="section-title">3. Split onto the groups of {mainType?.label ?? '…'} (percentage of the stock)</h3>
       <div className="segment-grid">
-        {SEGMENTS.map((seg) => (
-          <div className="segment-grid__row" key={seg.id}>
+        {groups.map((g) => (
+          <div className="segment-grid__row" key={g.id}>
             <label className="field">
-              <span className="field__label">{seg.label}</span>
-              <span className={`input-group ${!isInt(values[seg.id]) ? 'is-invalid' : ''}`}>
-                <input inputMode="numeric" value={values[seg.id]} placeholder="0" onChange={(e) => setValues((v) => ({ ...v, [seg.id]: e.target.value }))} />
-                <span className="input-group__addon muted">{unit}</span>
+              <span className="field__label">
+                {g.label} <code>{g.code}</code>
+              </span>
+              <span className={`input-group ${!isInt(shares[g.id] ?? '') ? 'is-invalid' : ''}`}>
+                <input inputMode="numeric" value={shares[g.id] ?? ''} placeholder="0" onChange={(e) => setShares((v) => ({ ...v, [g.id]: e.target.value }))} />
+                <span className="input-group__addon muted">%</span>
               </span>
             </label>
             <label className="field">
-              <span className="field__label">{seg.label} threshold</span>
-              <span className={`input-group ${!isInt(thresholds[seg.id]) ? 'is-invalid' : ''}`}>
+              <span className="field__label">{g.label} threshold</span>
+              <span className={`input-group ${!isInt(thresholds[g.id] ?? '') ? 'is-invalid' : ''}`}>
                 <input
                   inputMode="numeric"
-                  value={thresholds[seg.id]}
+                  value={thresholds[g.id] ?? ''}
                   placeholder="None"
-                  onChange={(e) => setThresholds((v) => ({ ...v, [seg.id]: e.target.value }))}
+                  onChange={(e) => setThresholds((v) => ({ ...v, [g.id]: e.target.value }))}
                 />
                 <button
                   type="button"
                   className="input-group__addon input-group__btn"
-                  onClick={() => setThresholds((v) => ({ ...v, [seg.id]: '' }))}
-                  disabled={thresholds[seg.id] === ''}
-                  aria-label={`Remove ${seg.label} threshold`}
+                  onClick={() => setThresholds((v) => ({ ...v, [g.id]: '' }))}
+                  disabled={!thresholds[g.id]}
+                  aria-label={`Remove ${g.label} threshold`}
                 >
                   <TrashIcon />
                 </button>
@@ -210,36 +237,18 @@ export function RuleEditorModal({
       </div>
 
       <div className="non-allocated">
-        {mode === 'percentage' ? (
-          <strong className={!percentValid ? 'text-error' : ''}>{100 - total} % : Non allocated</strong>
-        ) : (
-          <strong>{total} pcs allocated per stock location, the rest stays non allocated</strong>
-        )}
-        {!percentValid && <div className="text-error small">The sum of percentages cannot exceed 100 %.</div>}
+        <strong className={total > 100 ? 'text-error' : ''}>
+          {100 - total} % : stays on {mainType?.label} <code>{mainType?.code}</code>
+        </strong>
+        {total > 100 && <div className="text-error small">The sum of percentages cannot exceed 100 %.</div>}
       </div>
 
-      {valuesValid && percentValid && total > 0 && (
+      {valuesValid && total > 0 && total <= 100 && mainType && (
         <div className="example">
-          <span className="muted">Example on an import of {EXAMPLE_STOCK} pieces:</span>
-          <div className="stack-bar">
-            {SEGMENTS.map((seg, i) =>
-              example.quantities[seg.id] > 0 ? (
-                <span key={seg.id} className={`stack-bar__part seg-${i}`} style={{ flex: example.quantities[seg.id] }} title={seg.label}>
-                  {seg.label} {example.quantities[seg.id]}
-                </span>
-              ) : null,
-            )}
-            {exampleRest > 0 && (
-              <span className="stack-bar__part seg-rest" style={{ flex: exampleRest }}>
-                Non allocated {exampleRest}
-              </span>
-            )}
-          </div>
-          {example.capped && (
-            <div className="text-warning small">
-              Quantities exceed the stock: they are capped in the order {SEGMENTS.map((s) => s.label).join(' → ')}.
-            </div>
-          )}
+          <span className="muted">
+            Example: {EXAMPLE_STOCK} pieces updated on {mainType.code}
+          </span>
+          <SplitBar main={mainType} groups={groups} quantities={example} total={EXAMPLE_STOCK} labels />
         </div>
       )}
 

@@ -1,8 +1,5 @@
 import { itemAttribute } from '../config/attributes';
-import { SEGMENT_IDS } from '../config/segments';
 import type {
-  Allocation,
-  ImportResult,
   ItemQuery,
   ItemSortKey,
   ItemSummary,
@@ -10,26 +7,34 @@ import type {
   SegmentationRule,
   Sort,
   StockImportResult,
+  StockLine,
+  StockType,
+  StockTypeInput,
 } from '../types';
-import { applyRuleToAllocation, summarize, toLocationRow, unallocated } from '../utils/allocation';
+import { applyRuleToLine, splitSum, summarize, toRow, unsplit } from '../utils/allocation';
 import { byPriority, effectiveRule, matchesCriteria, normalizeText as normalize } from '../utils/rules';
-import { buildAllocations, buildRules, ITEMS, LOCATIONS } from './mockData';
+import { StockTypeTree } from '../utils/stockTypes';
+import { buildRules, buildStockLines, buildStockTypes, ITEMS, LOCATIONS, newLine } from './mockData';
 import type { StockAllocationApi } from './types';
 
-const STORAGE_KEY = 'stock-allocation:mock:v2';
-const LATENCY_MS = 150;
+const STORAGE_KEY = 'stock-allocation:mock:v3';
+const LATENCY_MS = 120;
 
 const delay = <T>(value: T): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(structuredClone(value)), LATENCY_MS));
+const fail = (message: string): Promise<never> =>
+  new Promise((_, reject) => setTimeout(() => reject(new Error(message)), LATENCY_MS));
 
 interface Db {
+  stockTypes: StockType[];
   rules: SegmentationRule[];
-  allocations: Allocation[];
+  lines: StockLine[];
 }
 
 function initialDb(): Db {
+  const stockTypes = buildStockTypes();
   const rules = buildRules();
-  return { rules, allocations: buildAllocations(rules) };
+  return { stockTypes, rules, lines: buildStockLines(rules, stockTypes) };
 }
 
 function load(): Db {
@@ -52,8 +57,10 @@ function persist() {
   }
 }
 
-const allocationsOf = (itemId: string) => db.allocations.filter((a) => a.itemId === itemId);
-const summaries = (): ItemSummary[] => ITEMS.map((item) => summarize(item, allocationsOf(item.id)));
+const tree = () => new StockTypeTree(db.stockTypes);
+const linesOf = (itemId: string) => db.lines.filter((l) => l.itemId === itemId);
+const summaries = (): ItemSummary[] => ITEMS.map((item) => summarize(item, linesOf(item.id)));
+const itemOf = (id: string) => ITEMS.find((i) => i.id === id)!;
 const ruleById = (id: string) => {
   const rule = db.rules.find((r) => r.id === id);
   if (!rule) throw new Error(`Rule ${id} not found`);
@@ -65,14 +72,12 @@ function sortValue(s: ItemSummary, key: ItemSortKey): string | number {
   switch (key) {
     case 'item':
       return s.item.name.toLowerCase();
-    case 'nonAllocated':
-      return s.nonAllocated;
     case 'totalStock':
       return s.totalStock;
     case 'activeSegments':
       return s.activeSegments;
     default:
-      return s.totals[key];
+      return s.totals[key] ?? 0;
   }
 }
 
@@ -88,62 +93,146 @@ function sortSummaries(list: ItemSummary[], sort?: Sort<ItemSortKey>) {
 
 const matchesSearch = (search: string) => {
   const q = normalize(search);
-  return (s: { name: string; sku: string; category: string; brand: string; season: string }) =>
-    !q ||
-    [s.name, s.sku, s.category, s.brand, s.season].some((v) => normalize(v).includes(q));
+  return (i: { name: string; sku: string; category: string; brand: string; season: string }) =>
+    !q || [i.name, i.sku, i.category, i.brand, i.season].some((v) => normalize(v).includes(q));
 };
 
 function validateRule(rule: RuleInput) {
+  const t = tree();
+  const type = t.byId(rule.stockTypeId);
   if (!rule.name.trim()) throw new Error('The rule needs a name');
+  if (!type || type.parentId !== null) throw new Error('Choose a main stock type');
+  if (!t.groupsOf(type.id).length) throw new Error(`${type.label} has no group to split the stock onto`);
   if (!rule.criteria.length || rule.criteria.some((c) => !c.values.length))
     throw new Error('Each criterion needs at least one value');
-  if (rule.mode === 'percentage' && SEGMENT_IDS.reduce((s, id) => s + rule.values[id], 0) > 100)
-    throw new Error('The sum of percentages cannot exceed 100 %');
+  if (rule.purchaseOrders.length && !type.future) throw new Error('Purchase orders are only allowed on future stock types');
+  if (Object.values(rule.shares).reduce((s, v) => s + v, 0) > 100) throw new Error('The sum of percentages cannot exceed 100 %');
 }
 
-/** Segments one allocation as a stock import does: first matching rule, or nothing allocated. */
-function segmentWithRules(a: Allocation, stats: StockImportResult) {
-  const item = ITEMS.find((i) => i.id === a.itemId)!;
-  const rule = effectiveRule(db.rules, item, a.locationId);
+/** Splits one stock line as a stock update does: first matching rule, or nothing split. */
+function segmentWithRules(line: StockLine, stats: StockImportResult): StockLine {
+  const rule = effectiveRule(db.rules, itemOf(line.itemId), line);
   if (!rule) {
     stats.withoutRule++;
-    return unallocated(a);
+    return unsplit(line);
   }
-  const { allocation, capped } = applyRuleToAllocation(a, rule);
   stats.byRule++;
-  if (capped) stats.capped++;
-  return allocation;
+  return applyRuleToLine(line, rule, tree());
 }
 
-const emptyStats = (): StockImportResult => ({ updated: 0, byRule: 0, withoutRule: 0, capped: 0, errors: [] });
+const emptyStats = (): StockImportResult => ({ updated: 0, byRule: 0, withoutRule: 0, errors: [] });
 
-function renumber() {
+function renumberRules() {
   db.rules.sort(byPriority).forEach((r, i) => (r.priority = i + 1));
 }
 
+function validateStockType(input: StockTypeInput, id?: string) {
+  const code = input.code.trim();
+  if (!/^[A-Za-z0-9_-]+$/.test(code)) throw new Error('The code can only contain letters, digits, "_" and "-"');
+  if (!input.label.trim()) throw new Error('The label is required');
+  if (db.stockTypes.some((t) => t.id !== id && t.code.toLowerCase() === code.toLowerCase()))
+    throw new Error(`The code "${code}" is already used`);
+  if (input.parentId) {
+    const parent = db.stockTypes.find((t) => t.id === input.parentId);
+    if (!parent || parent.parentId !== null) throw new Error('A group must belong to a main stock type');
+  }
+}
+
 export const mockApi: StockAllocationApi = {
+  // --- Stock types
+  async listStockTypes() {
+    return delay(tree().all);
+  },
+
+  async createStockType(input) {
+    try {
+      validateStockType(input);
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+    const siblings = db.stockTypes.filter((t) => t.parentId === input.parentId);
+    const parent = db.stockTypes.find((t) => t.id === input.parentId);
+    const type: StockType = {
+      id: `st-${Date.now()}`,
+      code: input.code.trim(),
+      label: input.label.trim(),
+      parentId: input.parentId,
+      future: parent ? parent.future : input.future,
+      position: Math.max(0, ...siblings.map((s) => s.position)) + 1,
+    };
+    db.stockTypes.push(type);
+    persist();
+    return delay(type);
+  },
+
+  async updateStockType(id, input) {
+    const type = db.stockTypes.find((t) => t.id === id);
+    if (!type) return fail('Stock type not found');
+    try {
+      validateStockType({ ...input, parentId: type.parentId }, id);
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+    if (type.future && !input.future && db.lines.some((l) => l.stockTypeId === id && l.purchaseOrder))
+      return fail('Stock with purchase orders exists on this type: it must stay a future stock type');
+    type.code = input.code.trim();
+    type.label = input.label.trim();
+    if (type.parentId === null) {
+      type.future = input.future;
+      db.stockTypes.filter((t) => t.parentId === id).forEach((g) => (g.future = input.future));
+      if (!input.future) db.rules.filter((r) => r.stockTypeId === id).forEach((r) => (r.purchaseOrders = []));
+    }
+    persist();
+    return delay(type);
+  },
+
+  async deleteStockType(id) {
+    const ids = [id, ...db.stockTypes.filter((t) => t.parentId === id).map((t) => t.id)];
+    const usedByStock = db.lines.some((l) => ids.includes(l.stockTypeId) || ids.some((g) => (l.split[g]?.quantity ?? 0) > 0));
+    if (usedByStock) return fail('This stock type holds stock: it cannot be deleted');
+    const rules = db.rules.filter((r) => ids.includes(r.stockTypeId) || ids.some((g) => (r.shares[g] ?? 0) > 0));
+    if (rules.length) return fail(`Used by ${rules.length} rule(s): ${rules.map((r) => r.name).join(', ')}`);
+    db.stockTypes = db.stockTypes.filter((t) => !ids.includes(t.id));
+    db.lines.forEach((l) => ids.forEach((g) => delete l.split[g]));
+    persist();
+    return delay(undefined);
+  },
+
+  async moveStockType(id, direction) {
+    const type = db.stockTypes.find((t) => t.id === id);
+    if (!type) return delay(undefined);
+    const siblings = db.stockTypes.filter((t) => t.parentId === type.parentId).sort((a, b) => a.position - b.position);
+    const i = siblings.indexOf(type);
+    const other = siblings[i + direction];
+    if (other) [type.position, other.position] = [other.position, type.position];
+    persist();
+    return delay(undefined);
+  },
+
   // --- Rules
   async listRules(query) {
     const q = normalize(query.search ?? '');
-    const rules = [...db.rules].sort(byPriority);
+    const rules = [...db.rules].sort(byPriority).filter((r) => !query.stockTypeId || r.stockTypeId === query.stockTypeId);
     // A SKU search also lists every rule matching that item (e.g. its category rule).
     const item = q ? ITEMS.find((i) => i.sku === q) : undefined;
     const matchesItem = (r: SegmentationRule) => !!item && matchesCriteria(item, r.criteria);
     const matchesText = (r: SegmentationRule) =>
       !q ||
-      (!query.attribute && normalize(r.name).includes(q)) ||
+      (!query.attribute && (normalize(r.name).includes(q) || r.purchaseOrders.some((p) => normalize(p).includes(q)))) ||
       r.criteria.some(
         (c) => (!query.attribute || c.attribute === query.attribute) && c.values.some((v) => normalize(v).includes(q)),
       );
-    const list = rules.filter(
-      (r) => matchesText(r) || ((!query.attribute || query.attribute === 'sku') && matchesItem(r)),
-    );
+    const list = rules.filter((r) => matchesText(r) || ((!query.attribute || query.attribute === 'sku') && matchesItem(r)));
     const start = query.page * query.pageSize;
+    // Effective rules for the searched item: the ones actually used by its current stock lines.
+    const effectiveRuleIds = item
+      ? [...new Set(linesOf(item.id).map((l) => effectiveRule(db.rules, item, l)?.id).filter((id): id is string => !!id))]
+      : [];
     return delay({
       data: list.slice(start, start + query.pageSize).map((rule) => ({ rule, matchedItemCount: matchedItems(rule).length })),
       total: list.length,
       ruleCount: db.rules.length,
-      matchedItem: item ? { item, effectiveRuleId: effectiveRule(db.rules, item)?.id } : undefined,
+      matchedItem: item ? { item, effectiveRuleIds } : undefined,
     });
   },
 
@@ -152,33 +241,33 @@ export const mockApi: StockAllocationApi = {
   },
 
   async createRule(input) {
-    validateRule(input);
-    const rule: SegmentationRule = {
-      ...input,
-      id: `rule-${Date.now()}`,
-      priority: db.rules.length + 1,
-      updatedAt: new Date().toISOString(),
-    };
+    try {
+      validateRule(input);
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+    const rule: SegmentationRule = { ...input, id: `rule-${Date.now()}`, priority: db.rules.length + 1, updatedAt: new Date().toISOString() };
     db.rules.push(rule);
     persist();
     return delay(rule);
   },
 
   async updateRule(ruleId, input) {
-    validateRule(input);
-    const rule = ruleById(ruleId);
-    Object.assign(rule, input, { updatedAt: new Date().toISOString() });
+    try {
+      validateRule(input);
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+    Object.assign(ruleById(ruleId), input, { updatedAt: new Date().toISOString() });
     persist();
-    return delay(rule);
+    return delay(ruleById(ruleId));
   },
 
   async deleteRule(ruleId) {
     db.rules = db.rules.filter((r) => r.id !== ruleId);
-    // Allocations keep their quantities until the next stock import.
-    db.allocations = db.allocations.map((a) =>
-      a.source.type === 'rule' && a.source.ruleId === ruleId ? { ...a, source: { type: 'manual' } } : a,
-    );
-    renumber();
+    // Lines keep their split until the next stock update.
+    db.lines = db.lines.map((l) => (l.source.type === 'rule' && l.source.ruleId === ruleId ? { ...l, source: { type: 'manual' } } : l));
+    renumberRules();
     persist();
     return delay(undefined);
   },
@@ -187,9 +276,8 @@ export const mockApi: StockAllocationApi = {
     const rules = db.rules.sort(byPriority);
     const i = rules.findIndex((r) => r.id === ruleId);
     const j = i + direction;
-    if (i < 0 || j < 0 || j >= rules.length) return delay(undefined);
-    [rules[i].priority, rules[j].priority] = [rules[j].priority, rules[i].priority];
-    renumber();
+    if (i >= 0 && j >= 0 && j < rules.length) [rules[i].priority, rules[j].priority] = [rules[j].priority, rules[i].priority];
+    renumberRules();
     persist();
     return delay(undefined);
   },
@@ -218,13 +306,24 @@ export const mockApi: StockAllocationApi = {
     );
   },
 
+  async listPurchaseOrders(stockTypeId, search) {
+    const q = normalize(search);
+    const items = new Map<string, Set<string>>();
+    db.lines
+      .filter((l) => l.purchaseOrder && l.stockTypeId === stockTypeId && (!q || normalize(l.purchaseOrder).includes(q)))
+      .forEach((l) => items.set(l.purchaseOrder!, (items.get(l.purchaseOrder!) ?? new Set()).add(l.itemId)));
+    return delay(
+      [...items.entries()].map(([value, set]) => ({ value, itemCount: set.size })).sort((a, b) => a.value.localeCompare(b.value)),
+    );
+  },
+
   async applyRulesToCurrentStock(ruleId) {
     const stats = emptyStats();
     const scope = ruleId ? new Set(matchedItems(ruleById(ruleId)).map((i) => i.id)) : undefined;
-    db.allocations = db.allocations.map((a) => {
-      if (scope && !scope.has(a.itemId)) return a;
+    db.lines = db.lines.map((l) => {
+      if (scope && !scope.has(l.itemId)) return l;
       stats.updated++;
-      return segmentWithRules(a, stats);
+      return segmentWithRules(l, stats);
     });
     persist();
     return delay(stats);
@@ -233,20 +332,25 @@ export const mockApi: StockAllocationApi = {
   // --- Stock & allocation
   async importStock(rows) {
     const stats = emptyStats();
+    const t = tree();
     rows.forEach((row, i) => {
       const line = i + 2; // header is line 1
       const item = ITEMS.find((it) => it.sku === row.sku);
       const loc = LOCATIONS.find((l) => l.code === row.locationCode);
+      const type = t.byCode(row.stockTypeCode);
       if (!item) return stats.errors.push(`Line ${line}: unknown SKU "${row.sku}"`);
       if (!loc) return stats.errors.push(`Line ${line}: unknown stock location "${row.locationCode}"`);
-      const idx = db.allocations.findIndex((a) => a.itemId === item.id && a.locationId === loc.id);
-      const current: Allocation =
-        idx >= 0
-          ? db.allocations[idx]
-          : unallocated({ itemId: item.id, locationId: loc.id, totalStock: 0 } as Allocation);
-      const next = segmentWithRules({ ...current, totalStock: row.quantity }, stats);
-      if (idx >= 0) db.allocations[idx] = next;
-      else db.allocations.push(next);
+      if (!type) return stats.errors.push(`Line ${line}: unknown stock type "${row.stockTypeCode}"`);
+      if (row.purchaseOrder && !type.future)
+        return stats.errors.push(`Line ${line}: purchase orders are only allowed on future stock types (${type.code} is not)`);
+      const po = type.future ? row.purchaseOrder : null;
+      const idx = db.lines.findIndex(
+        (l) => l.itemId === item.id && l.locationId === loc.id && l.stockTypeId === type.id && l.purchaseOrder === po,
+      );
+      const current = idx >= 0 ? db.lines[idx] : newLine(item.id, loc.id, type.id, po, 0);
+      const next = segmentWithRules({ ...current, quantity: row.quantity }, stats);
+      if (idx >= 0) db.lines[idx] = next;
+      else db.lines.push(next);
       stats.updated++;
     });
     persist();
@@ -255,7 +359,7 @@ export const mockApi: StockAllocationApi = {
 
   async listItems(query: ItemQuery) {
     let list = summaries().filter((s) => matchesSearch(query.search ?? '')(s.item));
-    if (query.warningSegment) list = list.filter((s) => s.warnings.includes(query.warningSegment!));
+    if (query.warningType) list = list.filter((s) => s.warnings.includes(query.warningType!));
     if (query.ruleId) {
       const rule = db.rules.find((r) => r.id === query.ruleId);
       list = rule ? list.filter((s) => matchesCriteria(s.item, rule.criteria)) : [];
@@ -268,69 +372,37 @@ export const mockApi: StockAllocationApi = {
   async getWarningSummary() {
     const all = summaries();
     return delay(
-      SEGMENT_IDS.map((segment) => ({
-        segment,
-        itemCount: all.filter((s) => s.warnings.includes(segment)).length,
-      })).filter((w) => w.itemCount > 0),
+      tree()
+        .ordered.map((t) => ({ stockTypeId: t.id, itemCount: all.filter((s) => s.warnings.includes(t.id)).length }))
+        .filter((w) => w.itemCount > 0),
     );
   },
 
   async getItemDetail(itemId) {
     const item = ITEMS.find((i) => i.id === itemId);
-    if (!item) throw new Error(`Item ${itemId} not found`);
-    const itemAllocations = allocationsOf(itemId);
+    if (!item) return fail(`Item ${itemId} not found`);
+    const lines = linesOf(itemId);
     const ref = (r?: SegmentationRule) => (r ? { id: r.id, name: r.name } : undefined);
-    const rows = LOCATIONS.flatMap((loc) => {
-      const a = itemAllocations.find((x) => x.locationId === loc.id);
-      if (!a) return [];
-      const rule = a.source.type === 'rule' ? ref(db.rules.find((r) => r.id === (a.source as { ruleId: string }).ruleId)) : undefined;
-      return [{ ...toLocationRow(loc, a), rule }];
+    const rows = lines.map((l) => {
+      const location = LOCATIONS.find((x) => x.id === l.locationId)!;
+      const rule = l.source.type === 'rule' ? ref(db.rules.find((r) => r.id === (l.source as { ruleId: string }).ruleId)) : undefined;
+      return { ...toRow(location, l), rule, nextRule: ref(effectiveRule(db.rules, item, l)) };
     });
-    const effectiveRules = Object.fromEntries(LOCATIONS.map((l) => [l.id, ref(effectiveRule(db.rules, item, l.id))]));
-    return delay({ summary: summarize(item, itemAllocations), rows, effectiveRules });
+    return delay({ summary: summarize(item, lines), rows });
   },
 
   async listLocations() {
     return delay(LOCATIONS);
   },
 
-  async updateAllocation(allocation) {
-    const idx = db.allocations.findIndex(
-      (a) => a.itemId === allocation.itemId && a.locationId === allocation.locationId,
-    );
-    if (idx < 0) throw new Error('Allocation not found');
-    const sum = SEGMENT_IDS.reduce((s, id) => s + allocation.segments[id].quantity, 0);
-    if (sum > db.allocations[idx].totalStock) throw new Error('Allocated quantity exceeds total stock');
-    db.allocations[idx] = { ...allocation, totalStock: db.allocations[idx].totalStock, source: { type: 'manual' } };
+  async updateStockLine(line) {
+    const idx = db.lines.findIndex((l) => l.id === line.id);
+    if (idx < 0) return fail('Stock line not found');
+    const current = db.lines[idx];
+    if (splitSum(line) > current.quantity) return fail('The split exceeds the stock quantity');
+    db.lines[idx] = { ...current, split: line.split, period: line.period, source: { type: 'manual' } };
     persist();
-    return delay(db.allocations[idx]);
-  },
-
-  async importRows(rows) {
-    const result: ImportResult = { updated: 0, errors: [] };
-    rows.forEach((row, i) => {
-      const line = i + 2;
-      const item = ITEMS.find((it) => it.sku === row.sku);
-      const loc = LOCATIONS.find((l) => l.code === row.locationCode);
-      if (!item) return result.errors.push(`Line ${line}: unknown SKU "${row.sku}"`);
-      if (!loc) return result.errors.push(`Line ${line}: unknown stock location "${row.locationCode}"`);
-      const idx = db.allocations.findIndex((a) => a.itemId === item.id && a.locationId === loc.id);
-      if (idx < 0) return result.errors.push(`Line ${line}: no stock for ${row.sku} in ${loc.code}`);
-      const current = db.allocations[idx];
-      const next: Allocation = {
-        ...current,
-        period: row.period ?? current.period,
-        segments: { ...current.segments, ...row.segments },
-        source: { type: 'manual' },
-      };
-      const sum = SEGMENT_IDS.reduce((s, id) => s + next.segments[id].quantity, 0);
-      if (sum > next.totalStock)
-        return result.errors.push(`Line ${line}: allocated ${sum} exceeds total stock ${next.totalStock}`);
-      db.allocations[idx] = next;
-      result.updated++;
-    });
-    persist();
-    return delay(result);
+    return delay(db.lines[idx]);
   },
 
   async searchItems(search, limit = 20) {
@@ -343,4 +415,3 @@ export const mockApi: StockAllocationApi = {
     return delay(undefined);
   },
 };
-

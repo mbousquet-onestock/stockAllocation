@@ -1,101 +1,80 @@
-import { SEGMENT_IDS, segmentRecord } from '../config/segments';
-import type {
-  Allocation,
-  Item,
-  ItemSummary,
-  LocationRow,
-  SegmentId,
-  SegmentationRule,
-  StockLocation,
-} from '../types';
+import type { Item, ItemSummary, SegmentationRule, StockLine, StockLocation, StockLineRow } from '../types';
+import type { StockTypeTree } from './stockTypes';
 
-export const allocatedSum = (a: Allocation): number =>
-  SEGMENT_IDS.reduce((sum, id) => sum + a.segments[id].quantity, 0);
+export const splitSum = (l: StockLine): number =>
+  Object.values(l.split).reduce((sum, g) => sum + g.quantity, 0);
 
-export const nonAllocated = (a: Allocation): number => a.totalStock - allocatedSum(a);
+/** Quantity left on the main stock type after the split onto its groups. */
+export const remaining = (l: StockLine): number => l.quantity - splitSum(l);
 
 export const isBelowThreshold = (quantity: number, threshold: number | null): boolean =>
   threshold !== null && quantity < threshold;
 
-export const allocationWarnings = (a: Allocation): SegmentId[] =>
-  SEGMENT_IDS.filter((id) => isBelowThreshold(a.segments[id].quantity, a.segments[id].threshold));
+export const lineWarnings = (l: StockLine): string[] =>
+  Object.entries(l.split)
+    .filter(([, g]) => isBelowThreshold(g.quantity, g.threshold))
+    .map(([id]) => id);
 
-/** Is the allocation active on the given day (ISO yyyy-mm-dd)? */
-export function isActive(a: Allocation, today: string): boolean {
-  if (a.period.type === 'always') return true;
-  return a.period.start <= today && today <= a.period.end;
+/** Is the segmentation active on the given day (ISO yyyy-mm-dd)? */
+export function isActive(period: StockLine['period'], today: string): boolean {
+  if (period.type === 'always') return true;
+  return period.start <= today && today <= period.end;
 }
 
-export function toLocationRow(location: StockLocation, allocation: Allocation): LocationRow {
-  return {
-    location,
-    allocation,
-    nonAllocated: nonAllocated(allocation),
-    warnings: allocationWarnings(allocation),
-  };
+export function toRow(location: StockLocation, line: StockLine): StockLineRow {
+  return { line, location, remaining: remaining(line), warnings: lineWarnings(line) };
 }
 
-export function summarize(item: Item, allocations: Allocation[]): ItemSummary {
-  const totals = segmentRecord((id) =>
-    allocations.reduce((sum, a) => sum + a.segments[id].quantity, 0),
-  );
-  const totalStock = allocations.reduce((sum, a) => sum + a.totalStock, 0);
-  const allocated = SEGMENT_IDS.reduce((sum, id) => sum + totals[id], 0);
-  const warnings = SEGMENT_IDS.filter((id) =>
-    allocations.some((a) => isBelowThreshold(a.segments[id].quantity, a.segments[id].threshold)),
-  );
+export function summarize(item: Item, lines: StockLine[]): ItemSummary {
+  const totals: Record<string, number> = {};
+  const add = (id: string, q: number) => (totals[id] = (totals[id] ?? 0) + q);
+  const warnings = new Set<string>();
+  lines.forEach((l) => {
+    add(l.stockTypeId, remaining(l));
+    Object.entries(l.split).forEach(([id, g]) => add(id, g.quantity));
+    lineWarnings(l).forEach((w) => warnings.add(w));
+  });
   return {
     item,
     totals,
-    totalStock,
-    nonAllocated: totalStock - allocated,
-    activeSegments: SEGMENT_IDS.filter((id) => totals[id] > 0).length,
-    warnings,
+    totalStock: lines.reduce((s, l) => s + l.quantity, 0),
+    activeSegments: Object.values(totals).filter((q) => q > 0).length,
+    warnings: [...warnings],
   };
 }
+
+/** Total of a main stock type family (the type itself and its groups). */
+export const familyTotal = (totals: Record<string, number>, tree: StockTypeTree, mainId: string) =>
+  tree.family(mainId).reduce((s, t) => s + (totals[t.id] ?? 0), 0);
 
 /**
- * Computes segment quantities for a given stock according to a rule.
- * - percentage: floor(stock * pct / 100) per segment, the rounding rest stays non allocated.
- * - quantity: fixed quantities, capped in segment order when the stock is insufficient.
+ * Splits a quantity onto groups by percentage: floor(quantity * pct / 100) per group,
+ * the rounding rest stays on the main stock type.
  */
-export function computeQuantities(
-  totalStock: number,
-  rule: Pick<SegmentationRule, 'mode' | 'values'>,
-): { quantities: Record<SegmentId, number>; capped: boolean } {
-  let remaining = totalStock;
-  let capped = false;
-  const quantities = segmentRecord((id) => {
-    const value = Math.max(0, rule.values[id] || 0);
-    const wanted = rule.mode === 'percentage' ? Math.floor((totalStock * value) / 100) : value;
-    const q = Math.min(wanted, remaining);
-    if (q < wanted) capped = true;
-    remaining -= q;
-    return q;
-  });
-  return { quantities, capped };
+export function computeSplit(quantity: number, shares: Record<string, number>, groupIds: string[]): Record<string, number> {
+  let left = quantity;
+  return Object.fromEntries(
+    groupIds.map((id) => {
+      const q = Math.min(left, Math.floor((quantity * Math.max(0, shares[id] ?? 0)) / 100));
+      left -= q;
+      return [id, q];
+    }),
+  );
 }
 
-/** Recomputes an allocation with a rule, keeping its stock. */
-export function applyRuleToAllocation(a: Allocation, rule: SegmentationRule): { allocation: Allocation; capped: boolean } {
-  const { quantities, capped } = computeQuantities(a.totalStock, rule);
+/** Splits a stock line with a rule. */
+export function applyRuleToLine(line: StockLine, rule: SegmentationRule, tree: StockTypeTree): StockLine {
+  const groupIds = tree.groupsOf(line.stockTypeId).map((g) => g.id);
+  const quantities = computeSplit(line.quantity, rule.shares, groupIds);
   return {
-    capped,
-    allocation: {
-      ...a,
-      period: rule.period,
-      segments: segmentRecord((id) => ({ quantity: quantities[id], threshold: rule.thresholds[id] })),
-      source: { type: 'rule', ruleId: rule.id },
-    },
+    ...line,
+    period: rule.period,
+    split: Object.fromEntries(groupIds.map((id) => [id, { quantity: quantities[id], threshold: rule.thresholds[id] ?? null }])),
+    source: { type: 'rule', ruleId: rule.id },
   };
 }
 
-/** Allocation when no rule matches: the whole stock stays non allocated. */
-export function unallocated(a: Allocation): Allocation {
-  return {
-    ...a,
-    period: { type: 'always' },
-    segments: segmentRecord(() => ({ quantity: 0, threshold: null })),
-    source: { type: 'none' },
-  };
+/** No rule: the whole quantity stays on the main stock type. */
+export function unsplit(line: StockLine): StockLine {
+  return { ...line, period: { type: 'always' }, split: {}, source: { type: 'none' } };
 }

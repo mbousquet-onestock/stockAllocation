@@ -28,8 +28,7 @@ export function StockImportModal({ onClose, onImported }: { onClose: () => void;
     const res = await api.importStock(rows);
     setImporting(false);
     const summary =
-      `${plural(res.updated, 'stock line')} imported: ${res.byRule} segmented by a rule, ${res.withoutRule} without rule` +
-      (res.capped ? `, ${res.capped} capped` : '');
+      `${plural(res.updated, 'stock line')} imported: ${res.byRule} segmented by a rule, ${res.withoutRule} without rule`;
     if (res.errors.length) {
       setErrors(res.errors);
       setRows([]);
@@ -58,14 +57,16 @@ export function StockImportModal({ onClose, onImported }: { onClose: () => void;
       }
     >
       <p>
-        Import the stock of items per stock location. For each line, the <strong>first enabled segmentation rule</strong> matching
-        the item (by priority) computes the allocation. Without matching rule, the whole stock stays non allocated.
+        Stock is always updated on a <strong>stock type</strong> (e.g. <code>on_hand</code>, <code>container</code>). For each line,
+        the <strong>first enabled segmentation rule</strong> (by priority) matching the item, the stock type, the location and the
+        purchase order splits the quantity onto the groups of the type. Without matching rule, everything stays on the stock type.
+        The purchase order is only allowed on future stock types.
       </p>
       <p className="muted small">Columns: {STOCK_HEADERS.join(', ')}</p>
       <button
         type="button"
         className="btn btn--secondary"
-        onClick={() => downloadText('stock-template.csv', `${STOCK_HEADERS.join(';')}\n1082108010944;0001;1000\n1082108010860;0002;250`)}
+        onClick={() => downloadText('stock-template.csv', `${STOCK_HEADERS.join(';')}\n1082108010944;0001;on_hand;1000;\n1082108010923;0002;container;300;PO-2026-0042\n1082108010860;0003;planned;120;`)}
       >
         <DownloadIcon /> Download template
       </button>
