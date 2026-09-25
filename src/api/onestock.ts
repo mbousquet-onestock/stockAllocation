@@ -417,7 +417,7 @@ async function exportRecords(itemIds: string[], config: OnestockConfig): Promise
   return records;
 }
 
-/** One line of stock_import: absolute quantity of an item, in an endpoint, on a stock type (segment). */
+/** One line of stock_import: stock variation of an item, in an endpoint, on a stock type (segment). */
 export interface StockImportRecord {
   item_id: string;
   endpoint_id: string;
@@ -438,8 +438,8 @@ export async function pushStock(records: StockImportRecord[], config = getOnesto
     await callOnestock(
       '/stock_import',
       config,
-      // Always a non incremental import: the quantities sent are absolute.
-      { import: { incremental: false }, stocks: records.slice(i, i + IMPORT_BATCH) },
+      // Incremental import: the quantities sent are variations added to the current stock.
+      { import: { incremental: true }, stocks: records.slice(i, i + IMPORT_BATCH) },
       'PATCH',
     );
     calls++;

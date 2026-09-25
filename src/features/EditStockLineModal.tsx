@@ -109,7 +109,7 @@ export function EditStockLineModal({
 
       {line.source.type === 'onestock' && (
         <p className="panel small">
-          Stock read from OneStock: saving sends the new split with <code>PATCH stock_import</code>
+          Stock read from OneStock: saving sends the variation of each stock type with an incremental <code>PATCH stock_import</code>
           {line.eta ? '' : tree.byId(line.stockTypeId)?.future ? ' — no ETA known for this purchase order, it cannot be sent.' : ''}. The
           activation period is not sent.
         </p>

@@ -40,8 +40,8 @@ export function ApplyRulesOnestockModal({ itemIds, onClose, onDone }: { itemIds?
   const send = async () => {
     setSending(true);
     try {
-      const res = await api.pushOnestockLines(sendable.map((c) => c.after));
-      notify(`${plural(sendable.length, 'stock line')} sent to OneStock (${plural(res.sent, 'record')}, ${plural(res.calls, 'call')})`);
+      const res = await api.pushOnestockChanges(sendable.map((c) => ({ before: c.before, after: c.after })));
+      notify(`${plural(sendable.length, 'stock line')} sent to OneStock (${plural(res.sent, 'variation')}, ${plural(res.calls, 'call')})`);
       onDone();
     } catch (e) {
       notify((e as Error).message, 'error');
@@ -56,7 +56,7 @@ export function ApplyRulesOnestockModal({ itemIds, onClose, onDone }: { itemIds?
       width={1000}
       footer={
         <>
-          <span className="footer-hint muted small">The new split is sent with PATCH stock_import.</span>
+          <span className="footer-hint muted small">The stock variations of each type are sent with an incremental PATCH stock_import.</span>
           <button type="button" className="btn btn--secondary" onClick={onClose}>
             Cancel
           </button>

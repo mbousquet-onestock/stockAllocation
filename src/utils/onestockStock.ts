@@ -77,6 +77,18 @@ function remoteCode(line: StockLine, typeId: string, tree: StockTypeTree): strin
 }
 
 /**
+ * Incremental stock_import records: for each stock type of the line, the variation (after − before).
+ * Types whose quantity does not change are not sent. A move between segments sums to 0.
+ */
+export function lineDeltaRecords(before: StockLine, after: StockLine, tree: StockTypeTree): StockImportRecord[] {
+  const key = (r: StockImportRecord) => r.type ?? '';
+  const old = new Map(lineToRecords(before, tree).map((r) => [key(r), r.quantity]));
+  return lineToRecords(after, tree)
+    .map((r) => ({ ...r, quantity: r.quantity - (old.get(key(r)) ?? 0) }))
+    .filter((r) => r.quantity !== 0);
+}
+
+/**
  * stock_import records of a line: the main type keeps quantity − split, each group gets its split quantity.
  * Future stock carries the purchase order and the ETA read at the GET.
  */

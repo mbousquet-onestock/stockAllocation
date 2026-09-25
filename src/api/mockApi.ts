@@ -33,7 +33,7 @@ import {
   useOnestockItems,
   useOnestockStock,
 } from './onestock';
-import { lineToRecords, recordsToLines } from '../utils/onestockStock';
+import { lineDeltaRecords, recordsToLines } from '../utils/onestockStock';
 import { remoteRules } from './remoteRules';
 import { buildRules, buildStockLines, buildStockTypes, ITEMS, LOCATIONS, newLine } from './mockData';
 import type { StockAllocationApi } from './types';
@@ -580,16 +580,20 @@ export const mockApi: StockAllocationApi = {
     return preview;
   },
 
-  async pushOnestockLines(lines) {
+  async pushOnestockChanges(changes) {
     const t = tree();
-    return pushStock(lines.flatMap((l) => lineToRecords(l, t)));
+    return pushStock(changes.flatMap((c) => lineDeltaRecords(c.before, c.after, t)));
   },
 
   async updateStockLine(line) {
     if (line.source.type === 'onestock' || line.remoteTypes) {
       if (splitSum(line) > line.quantity) return fail('The split exceeds the stock quantity');
       if (tree().byId(line.stockTypeId)?.future && !line.eta) return fail('Future stock without ETA: it cannot be sent to OneStock');
-      await pushStock(lineToRecords(line, tree()));
+      // Variations against the stock as displayed (the line read from OneStock).
+      const before = (await stockOf([line.itemId])).lines.find((l) => l.id === line.id);
+      if (!before) return fail('Stock line not found in OneStock: refresh the page');
+      const records = lineDeltaRecords(before, line, tree());
+      if (records.length) await pushStock(records);
       return line;
     }
     const idx = db.lines.findIndex((l) => l.id === line.id);

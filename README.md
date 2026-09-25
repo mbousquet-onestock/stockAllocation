@@ -92,12 +92,14 @@ défaut). Quand l'API est configurée, les valeurs du critère **Category** de l
   le stock déjà lu article par article. *Refresh stock* (liste) relit OneStock. Les pastilles « Below threshold »,
   calculées sur le stock local, sont masquées quand le stock vient de OneStock.
 - Les **modifications de stock** sont renvoyées avec `PATCH {{url}}/stock_import`
-  (`{ import: { incremental: false }, stocks: [{ item_id, endpoint_id, quantity, type, purchase_order_number, eta_start,
-  eta_end }] }`, toujours non incrémental : quantités absolues), par lots de 500 enregistrements :
+  (`{ import: { incremental: true }, stocks: [{ item_id, endpoint_id, quantity, type, purchase_order_number, eta_start,
+  eta_end }] }`), par lots de 500 enregistrements. Import **incrémental** : `quantity` est la **variation** appliquée à
+  chaque type de stock (nouvelle quantité − quantité lue au GET) ; seuls les types qui changent sont envoyés, et un
+  déplacement entre segments a une somme nulle (ex. `Container` −3, `Container_A` +3) :
   - modification manuelle d'une ligne OneStock dans le détail article ;
   - **Apply rules → OneStock** (détail article, articles sélectionnés, ou bouton *Apply rules* de la page des règles pour
     tous les articles en stock) : aperçu avant / après des lignes que les règles re-segmentent, puis envoi.
-  - Chaque ligne envoie le type principal (quantité − répartition) et chacun de ses groupes. Le code du type est repris
+  - Pour chaque ligne : variation du type principal (non réparti) et de chacun de ses groupes. Le code du type est repris
     tel que lu au GET (`Container`, `Container_B`…), et pour le stock futur le `purchase_order_number` et les
     `eta_start` / `eta_end` lus au GET sont renvoyés ; une ligne future sans ETA connue n'est pas envoyée.
 - L'appel passe par le proxy `POST /api/onestock` (fonction Vercel) : le navigateur ne peut pas appeler l'API OneStock

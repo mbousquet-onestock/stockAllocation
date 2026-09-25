@@ -61,8 +61,8 @@ export interface StockAllocationApi {
   listLocations(): Promise<StockLocation[]>;
   /** OneStock stock: lines the rules would re-segment (all items with stock when itemIds is omitted). */
   previewOnestockRules(itemIds?: string[]): Promise<OnestockRulePreview>;
-  /** Sends stock lines to OneStock (PATCH stock_import). */
-  pushOnestockLines(lines: StockLine[]): Promise<{ sent: number; calls: number }>;
+  /** Sends the variations between stock lines as read and re-segmented to OneStock (incremental PATCH stock_import). */
+  pushOnestockChanges(changes: Array<{ before: StockLine; after: StockLine }>): Promise<{ sent: number; calls: number }>;
   /** Manual override of the split of one stock line (sent to OneStock for OneStock lines). */
   updateStockLine(line: StockLine): Promise<StockLine>;
   searchItems(search: string, limit?: number): Promise<Item[]>;
