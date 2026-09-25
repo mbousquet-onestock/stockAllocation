@@ -311,7 +311,7 @@ export function ItemDetailPage() {
                   <SortHeader label="Activation period" sortKey="period" sort={sort} onSort={onSort} />
                 </th>
                 {hasEta && <th>ETA</th>}
-                <th>Source</th>
+                {!onestock && <th>Source</th>}
                 <th>Rule at next update</th>
               </tr>
             </thead>
@@ -395,17 +395,17 @@ export function ItemDetailPage() {
                       </span>
                     </td>
                     {hasEta && <td className="small">{r.line.eta ? formatEta(r.line.eta) : <span className="muted">—</span>}</td>}
-                    <td>
-                      {r.line.source.type === 'onestock' ? (
-                        <span className="badge badge--rule">OneStock</span>
-                      ) : r.line.source.type === 'rule' ? (
-                        <span className="badge badge--rule">Rule: {r.rule?.name ?? 'deleted'}</span>
-                      ) : r.line.source.type === 'manual' ? (
-                        <span className="badge">Manual</span>
-                      ) : (
-                        <span className="badge badge--muted">No rule</span>
-                      )}
-                    </td>
+                    {!onestock && (
+                      <td>
+                        {r.line.source.type === 'rule' ? (
+                          <span className="badge badge--rule">Rule: {r.rule?.name ?? 'deleted'}</span>
+                        ) : r.line.source.type === 'manual' ? (
+                          <span className="badge">Manual</span>
+                        ) : (
+                          <span className="badge badge--muted">No rule</span>
+                        )}
+                      </td>
+                    )}
                     <td onClick={(e) => e.stopPropagation()}>
                       {r.nextRule ? (
                         <Link to={`/?q=${encodeURIComponent(item.sku)}`} className="link">
