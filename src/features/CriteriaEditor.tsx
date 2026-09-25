@@ -6,7 +6,7 @@ import type { AttributeKey, Criterion } from '../types';
 import { plural } from '../utils/format';
 import { useAsync, useDebounced } from '../utils/useAsync';
 
-type Option = { value: string; label?: string; itemCount: number };
+type Option = { value: string; label?: string; itemCount?: number };
 
 /** Multi-value input with suggestions (existing values of an item characteristic, purchase orders…). */
 export function ValuesInput({
@@ -15,6 +15,8 @@ export function ValuesInput({
   load,
   loadKey,
   placeholder,
+  display = (v) => v,
+  allowFree = true,
 }: {
   values: string[];
   onChange: (values: string[]) => void;
@@ -22,6 +24,10 @@ export function ValuesInput({
   /** Changes when the suggestion source changes. */
   loadKey: string;
   placeholder: string;
+  /** Label of a selected value (e.g. a location name for its id). */
+  display?: (value: string) => string;
+  /** Allow values not in the suggestions (typed + Enter). */
+  allowFree?: boolean;
 }) {
   const [text, setText] = useState('');
   const [open, setOpen] = useState(false);
@@ -39,8 +45,8 @@ export function ValuesInput({
       <div className="values-input__box">
         {values.map((v) => (
           <span className="chip chip--selected" key={v}>
-            {v}
-            <button type="button" onClick={() => onChange(values.filter((x) => x !== v))} aria-label={`Remove ${v}`}>
+            {display(v)}
+            <button type="button" onClick={() => onChange(values.filter((x) => x !== v))} aria-label={`Remove ${display(v)}`}>
               <CloseIcon width={12} height={12} />
             </button>
           </span>
@@ -56,7 +62,7 @@ export function ValuesInput({
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault();
-              add(options[0] && !text.trim() ? options[0].value : text);
+              add(options[0] && (!text.trim() || !allowFree) ? options[0].value : allowFree ? text : '');
             } else if (e.key === 'Backspace' && !text && values.length) onChange(values.slice(0, -1));
           }}
         />
@@ -66,10 +72,10 @@ export function ValuesInput({
           {options.map((o) => (
             <button type="button" key={o.value} className="dropdown__option" onMouseDown={(e) => e.preventDefault()} onClick={() => add(o.value)}>
               <span className="grow">
-                {o.value}
+                {display(o.value)}
                 {o.label && <span className="muted"> — {o.label}</span>}
               </span>
-              <span className="muted small">{plural(o.itemCount, 'item')}</span>
+              {o.itemCount !== undefined && <span className="muted small">{plural(o.itemCount, 'item')}</span>}
             </button>
           ))}
         </div>

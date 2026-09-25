@@ -7,6 +7,7 @@ import { useToast } from '../components/Toast';
 import type { ActivationPeriod, Criterion, RuleInput, SegmentationRule } from '../types';
 import { computeSplit } from '../utils/allocation';
 import { plural } from '../utils/format';
+import { normalizeText } from '../utils/rules';
 import { useAsync } from '../utils/useAsync';
 import { CriteriaEditor, ValuesInput } from './CriteriaEditor';
 import { isPeriodValid, PeriodField } from './PeriodField';
@@ -38,6 +39,7 @@ export function RuleEditorModal({
   const [stockTypeIds, setStockTypeIds] = useState<string[]>(src?.stockTypeIds ?? []); // [] = all
   const [purchaseOrders, setPurchaseOrders] = useState<string[]>(src?.purchaseOrders ?? []);
   const [locationIds, setLocationIds] = useState<string[]>(src?.locationIds ?? []); // [] = all
+  const [specificLocations, setSpecificLocations] = useState(locationIds.length > 0);
   const [shares, setShares] = useState<Record<string, string>>(() =>
     Object.fromEntries(Object.entries(src?.shares ?? {}).map(([k, v]) => [k, String(v)])),
   );
@@ -61,8 +63,7 @@ export function RuleEditorModal({
   const valuesValid = targetedGroups.every((g) => isInt(shares[g.id] ?? '') && isInt(thresholds[g.id] ?? ''));
   const sharesValid = targeted.every((t) => typeTotal(t.id) <= 100) && targeted.some((t) => typeTotal(t.id) > 0);
   const criteriaValid = criteria.length > 0 && criteria.every((c) => c.values.length > 0);
-  const allLocations = (locations.data ?? []).map((l) => l.id);
-  const valid = !!name.trim() && targeted.length > 0 && criteriaValid && valuesValid && sharesValid && isPeriodValid(period);
+  const valid = !!name.trim() && targeted.length > 0 && (!specificLocations || locationIds.length > 0) && criteriaValid && valuesValid && sharesValid && isPeriodValid(period);
 
   const toggleType = (id: string, checked: boolean) => {
     const current = stockTypeIds.length ? stockTypeIds : allTypes;
@@ -91,11 +92,7 @@ export function RuleEditorModal({
     setThresholds(nextThresholds);
   };
 
-  const toggleLocation = (id: string, checked: boolean) => {
-    const current = locationIds.length ? locationIds : allLocations;
-    const next = checked ? [...current, id] : current.filter((x) => x !== id);
-    setLocationIds(next.length === allLocations.length ? [] : next);
-  };
+  const locationLabel = (id: string) => locations.data?.find((l) => l.id === id)?.name ?? id;
 
   const save = async () => {
     const input: RuleInput = {
@@ -125,7 +122,6 @@ export function RuleEditorModal({
     }
   };
 
-  const selectedCount = locationIds.length || allLocations.length;
 
   return (
     <Modal
@@ -228,21 +224,35 @@ export function RuleEditorModal({
         )}
         <div className="field">
           <span className="field__label">Stock locations</span>
-          <div className="inline-checks">
-            {(locations.data ?? []).map((l) => (
-              <Checkbox
-                key={l.id}
-                checked={locationIds.length === 0 || locationIds.includes(l.id)}
-                onChange={(checked) => toggleLocation(l.id, checked)}
-                label={
-                  <>
-                    {l.name} <span className="muted">{l.code}</span>
-                  </>
-                }
+          <Checkbox
+            checked={!specificLocations}
+            onChange={(all) => {
+              setSpecificLocations(!all);
+              if (all) setLocationIds([]);
+            }}
+            label={<strong>All stock locations</strong>}
+          />
+          {specificLocations ? (
+            <>
+              <ValuesInput
+                values={locationIds}
+                onChange={setLocationIds}
+                load={async (q) => {
+                  const query = normalizeText(q);
+                  return (locations.data ?? [])
+                    .filter((l) => !query || normalizeText(`${l.name} ${l.code}`).includes(query))
+                    .map((l) => ({ value: l.id, label: l.code }));
+                }}
+                loadKey={String(locations.data?.length ?? 0)}
+                display={locationLabel}
+                allowFree={false}
+                placeholder="Search a stock location by name or code…"
               />
-            ))}
-            {selectedCount === 0 && <span className="text-error small">Select at least one stock location.</span>}
-          </div>
+              {locationIds.length === 0 && <span className="text-error small">Select at least one stock location.</span>}
+            </>
+          ) : (
+            <span className="muted small">Stock locations added later will also be targeted.</span>
+          )}
         </div>
       </div>
 

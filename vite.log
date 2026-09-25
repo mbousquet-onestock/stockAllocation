@@ -3,3 +3,5 @@
 
   ➜  Local:   http://localhost:5173/
   ➜  Network: use --host to expose
+8:15:11 AM [vite] (client) hmr update /src/features/CriteriaEditor.tsx
+8:15:11 AM [vite] (client) hmr update /src/features/RuleEditorModal.tsx
