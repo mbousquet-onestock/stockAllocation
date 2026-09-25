@@ -51,6 +51,12 @@ export function setOnestockConfig(config: OnestockConfig) {
   endpointsCache = undefined;
   itemIndex = undefined;
   itemDetails.clear();
+  fullDetails.clear();
+  try {
+    localStorage.removeItem(DETAILS_KEY);
+  } catch {
+    /* ignore */
+  }
   stockCache.clear();
   stockTotals = undefined;
 }
@@ -310,17 +316,60 @@ export function parseItem(node: ItemNode, language = getOnestockConfig().languag
 }
 
 const itemDetails = new Map<string, Item>();
+/** Items whose full features are loaded (the compact cache of the browser has no features). */
+const fullDetails = new Set<string>();
+const DETAIL_BATCH = 25;
+const DETAIL_CONCURRENCY = 4;
+const DETAILS_KEY = 'stock-allocation:onestock-items';
+const DETAILS_CACHE_MS = 60 * 60 * 1000;
 
-/** Item details by id (item_ids), cached; unknown ids come back as minimal items. */
-export async function fetchItemDetails(ids: string[]): Promise<Item[]> {
-  const missing = [...new Set(ids.filter((id) => !itemDetails.has(id)))];
-  for (let i = 0; i < missing.length; i += PAGE_SIZE) {
-    const batch = missing.slice(i, i + PAGE_SIZE);
-    const page = await callOnestock<ItemsPage>('/v3/items', getOnestockConfig(), {
-      item_ids: batch,
-      pagination: { limit: batch.length, start: 0 },
-    });
-    (page.items ?? []).forEach((node) => node.id && itemDetails.set(String(node.id), parseItem(node as ItemNode)));
+/** Compact details kept in the browser (1 hour) so that the whole catalog is not reloaded at each visit. */
+function loadCompactDetails() {
+  try {
+    const raw = localStorage.getItem(DETAILS_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw) as { key: string; at: number; items: Item[] };
+    const c = getOnestockConfig();
+    if (saved.key !== `${c.url}|${c.siteId}|${c.language}` || Date.now() - saved.at > DETAILS_CACHE_MS) return;
+    saved.items.forEach((i) => itemDetails.set(i.id, i));
+  } catch {
+    /* ignore */
+  }
+}
+function saveCompactDetails() {
+  try {
+    const c = getOnestockConfig();
+    const items = [...itemDetails.values()].map(({ features: _f, description: _d, ...compact }) => compact);
+    localStorage.setItem(DETAILS_KEY, JSON.stringify({ key: `${c.url}|${c.siteId}|${c.language}`, at: Date.now(), items }));
+  } catch {
+    /* quota: keep the memory cache only */
+  }
+}
+loadCompactDetails();
+
+/**
+ * Item details by id: GET v3/items with { item_ids } (no pagination, as in the API contract), by batches of 25,
+ * 4 calls at a time, cached. `full` also requires the complete features (item page).
+ * Unknown ids come back as minimal items.
+ */
+export async function fetchItemDetails(ids: string[], options: { full?: boolean } = {}): Promise<Item[]> {
+  const missing = [...new Set(ids.filter((id) => !itemDetails.has(id) || (options.full && !fullDetails.has(id))))];
+  const batches: string[][] = [];
+  for (let i = 0; i < missing.length; i += DETAIL_BATCH) batches.push(missing.slice(i, i + DETAIL_BATCH));
+  const run = async () => {
+    for (let batch = batches.shift(); batch; batch = batches.shift()) {
+      const page = await callOnestock<ItemsPage>('/v3/items', getOnestockConfig(), { item_ids: batch });
+      (page.items ?? []).forEach((node) => {
+        if (!node.id) return;
+        const id = String(node.id);
+        itemDetails.set(id, parseItem(node as ItemNode));
+        if ((node as ItemNode).features) fullDetails.add(id);
+      });
+    }
+  };
+  if (missing.length) {
+    await Promise.all(Array.from({ length: Math.min(DETAIL_CONCURRENCY, batches.length) }, run));
+    saveCompactDetails();
   }
   return ids.map((id) => itemDetails.get(id) ?? minimalItem(id));
 }
@@ -339,6 +388,12 @@ export const minimalItem = (id: string): Item => ({
 });
 
 export const cachedItem = (id: string) => itemDetails.get(id);
+
+/** "Name (id)" of an item when its details are known, else its id. */
+export function skuLabel(id: string): string {
+  const item = itemDetails.get(id);
+  return item && item.name && item.name !== id ? `${item.name} (${id})` : id;
+}
 
 export const useOnestockItems = (c = getOnestockConfig()) => c.useForItems && isOnestockConfigured(c);
 

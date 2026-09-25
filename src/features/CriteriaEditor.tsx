@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api';
-import { categoryLabel } from '../api/onestock';
+import { categoryLabel, skuLabel } from '../api/onestock';
 import { CloseIcon, TrashIcon } from '../components/Icons';
 import { ATTRIBUTES, attributeLabel } from '../config/attributes';
 import type { AttributeKey, Criterion } from '../types';
@@ -118,7 +118,7 @@ export function CriteriaEditor({ criteria, onChange }: { criteria: Criterion[]; 
             onChange={(values) => update(i, { values })}
             load={(q) => api.listAttributeValues(c.attribute, q)}
             loadKey={c.attribute}
-            display={c.attribute === 'category' ? categoryLabel : undefined}
+            display={c.attribute === 'category' ? categoryLabel : c.attribute === 'sku' ? skuLabel : undefined}
             placeholder={`Choose ${attributeLabel(c.attribute).toLowerCase()} values…`}
           />
           <button

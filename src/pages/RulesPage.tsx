@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { getDbConfig } from '../api/dbConfig';
-import { categoryLabel, useOnestockStock } from '../api/onestock';
+import { categoryLabel, skuLabel, useOnestockStock } from '../api/onestock';
 import { ApplyRulesOnestockModal } from '../features/ApplyRulesOnestockModal';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { useDataVersion } from '../components/DataVersion';
@@ -246,12 +246,30 @@ export function RulesPage() {
                   </td>
                   <td>
                     <div className="criteria-chips">
-                      {rule.criteria.map((c) => (
+                      {rule.criteria.map((c) =>
+                        c.attribute === 'sku' ? (
+                          <span className="chip chip--criterion chip--sku" key={c.attribute}>
+                            <span className="muted">{attributeLabel(c.attribute)}:</span>
+                            <span className="sku-list">
+                              {c.values.slice(0, 3).map((id) => {
+                                const name = skuLabel(id).replace(` (${id})`, '');
+                                return (
+                                  <span key={id} className="sku-list__item" title={id}>
+                                    {name !== id && <span>{name}</span>}
+                                    <span className="muted small">{id}</span>
+                                  </span>
+                                );
+                              })}
+                              {c.values.length > 3 && <span className="muted small">+{c.values.length - 3} more</span>}
+                            </span>
+                          </span>
+                        ) : (
                         <span className="chip chip--criterion" key={c.attribute}>
                           <span className="muted">{attributeLabel(c.attribute)}:</span>{' '}
                           {(c.attribute === 'category' ? c.values.map(categoryLabel) : c.values).join(', ')}
                         </span>
-                      ))}
+                        ),
+                      )}
                     </div>
                   </td>
                   <td>

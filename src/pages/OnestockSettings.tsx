@@ -92,7 +92,7 @@ export function OnestockSettings() {
       const ids = (page.items ?? []).map((i) => String(i.id));
       let first: Item | undefined;
       if (ids[0]) {
-        const detail = await callOnestock<{ items?: unknown[] }>('/v3/items', config, { item_ids: [ids[0]], pagination: { limit: 1, start: 0 } });
+        const detail = await callOnestock<{ items?: unknown[] }>('/v3/items', config, { item_ids: [ids[0]] });
         const node = detail.items?.[0] as Parameters<typeof parseItem>[0] | undefined;
         if (node) first = parseItem(node, config.language);
       }

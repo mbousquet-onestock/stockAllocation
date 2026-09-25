@@ -80,8 +80,11 @@ défaut). Quand l'API est configurée, les valeurs du critère **Category** de l
 - Les **articles** viennent de `{{url}}/v3/items` :
   - index des ids (`{ pagination: { limit: 25, start } }`, repli sur `search_after` si `start` n'est pas pris en compte),
     chargé une fois (jusqu'à 5 000 articles, cache 10 min) pour la **complétion** de la recherche et les critères SKU ;
-  - détail par lot (`{ item_ids: [...] }`) : `features.<langue>` (langue par défaut, sinon la première) → nom, image,
-    désignation, description et toutes les caractéristiques affichées dans le détail article.
+  - détail par lot (`{ item_ids: [...] }`, **sans pagination**, 25 ids par appel, 4 appels en parallèle) :
+    `features.<langue>` (langue par défaut, sinon la première) → nom, image, désignation, description et toutes les
+    caractéristiques affichées dans le détail article. Le détail est chargé pour **tout le catalogue** afin d'évaluer
+    les critères des règles (cache compact d'une heure dans le navigateur, caractéristiques complètes rechargées
+    dans le détail article). Les SKU sont affichés « désignation (id) » dans les critères et suggestions.
   - L'import de stock accepte alors tout SKU OneStock (id d'article) et les ids d'endpoints comme `location_code`.
 - Le **stock** des articles vient de `{{url}}/stock_export` (`{ request_name: {{stock_request}}, item_filter: { ids } }`,
   par lots de 50, cache 2 min) : chaque enregistrement `{ item_id, endpoint_id, quantity, type, purchase_order_number,

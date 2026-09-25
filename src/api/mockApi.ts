@@ -106,7 +106,8 @@ async function loadCatalog(): Promise<Item[]> {
   const ids = await fetchItemIndex();
   // Items that only exist through imported stock are kept too.
   const withStock = [...new Set(db.lines.map((l) => l.itemId))].filter((id) => !ITEMS.some((i) => i.id === id));
-  catalogCache = [...new Set([...ids, ...withStock])].map((id) => cachedItem(id) ?? minimalItem(id));
+  // Details of every item (name, designation, characteristics), needed to match the rule criteria.
+  catalogCache = await fetchItemDetails([...new Set([...ids, ...withStock])]);
   return catalogCache;
 }
 const catalog = () => catalogCache;
@@ -316,8 +317,9 @@ export const mockApi: StockAllocationApi = {
     const list = list0.filter((r) => matchesText(r) || ((!query.attribute || query.attribute === 'sku') && matchesItem(r)));
     const start = query.page * query.pageSize;
     // Effective rules for the searched item: the ones actually used by its current stock lines.
+    const itemLines = item ? (await stockOf([item.id])).lines : [];
     const effectiveRuleIds = item
-      ? [...new Set(linesOf(item.id).map((l) => effectiveRule(rules(), item, l)?.id).filter((id): id is string => !!id))]
+      ? [...new Set(itemLines.map((l) => effectiveRule(rules(), item, l)?.id).filter((id): id is string => !!id))]
       : [];
     return delay({
       data: list.slice(start, start + query.pageSize).map((rule) => ({ rule, matchedItemCount: matchedItems(rule).length })),
@@ -401,11 +403,16 @@ export const mockApi: StockAllocationApi = {
         .map((c) => ({ value: c.id, label: c.label !== c.id ? c.label : undefined }));
     }
     if (attribute === 'sku' && useOnestockItems()) {
-      const ids = await fetchItemIndex();
+      const ids = (await loadCatalog()).map((i) => i.id);
       return ids
         .filter((id) => !q || normalize(id).includes(q) || normalize(cachedItem(id)?.name ?? '').includes(q))
         .slice(0, 50)
-        .map((id) => ({ value: id, label: cachedItem(id)?.name !== id ? cachedItem(id)?.name : undefined }));
+        .map((id) => {
+          const item = cachedItem(id);
+          // Displayed as "name (id)"; the designation completes the suggestion.
+          const label = item?.specs[0] || undefined;
+          return { value: id, label };
+        });
     }
     const counts = new Map<string, { label?: string; itemCount: number }>();
     ITEMS.forEach((i) => {
@@ -530,7 +537,7 @@ export const mockApi: StockAllocationApi = {
   async getItemDetail(itemId) {
     await syncRules();
     const demo = ITEMS.find((i) => i.id === itemId);
-    const item = demo ?? (useOnestockItems() ? (await fetchItemDetails([itemId]))[0] : undefined);
+    const item = demo ?? (useOnestockItems() ? (await fetchItemDetails([itemId], { full: true }))[0] : undefined);
     if (!item) return fail(`Item ${itemId} not found`);
     const [stock, locations] = await Promise.all([stockOf([itemId]), allLocations()]);
     const lines = stock.lines;

@@ -363,3 +363,8 @@ main { padding: 0 40px 100px; }
 .json-block { min-width: 0; }
 .json-block__header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
 .json-block pre { margin: 0; max-height: 360px; overflow: auto; background: #1e1e1e; color: #e6e6e6; padding: 10px; border-radius: var(--radius); font-size: 12px; line-height: 1.4; }
+.chip--sku { align-items: flex-start; border-radius: 10px; }
+.sku-list { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sku-list__item { display: flex; flex-direction: column; line-height: 1.25; }
+.sku-list__item .small { word-break: break-all; font-size: 10.5px; }
+.chip--sku { min-width: 230px; }
