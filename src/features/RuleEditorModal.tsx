@@ -244,8 +244,8 @@ export function RuleEditorModal({
                 load={async (q) => {
                   const query = normalizeText(q);
                   return (locations.data ?? [])
-                    .filter((l) => !query || normalizeText(`${l.name} ${l.code}`).includes(query))
-                    .map((l) => ({ value: l.id, label: l.code }));
+                    .filter((l) => !query || normalizeText(`${l.name} ${l.code} ${l.city ?? ''}`).includes(query))
+                    .map((l) => ({ value: l.id, label: [l.code, l.city, l.country].filter(Boolean).join(' · ') }));
                 }}
                 loadKey={String(locations.data?.length ?? 0)}
                 display={locationLabel}

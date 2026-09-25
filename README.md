@@ -37,7 +37,7 @@ npm run build      # typecheck + build de production
   la répartition sur les groupes, la source (règle / manuel / aucune) et la règle du prochain import ; clic sur une
   ligne = modification manuelle.
 - **Settings** (`/settings`) → *Stock types* : création, modification, ordre et suppression des types et de leurs groupes.
-- **Settings** → *OneStock API* : URL, site_id, token, langue par défaut ; test de chargement des catégories.
+- **Settings** → *OneStock API* : URL, site_id, token, langue par défaut ; tests de chargement des catégories et des stock locations.
 - **Settings** → *Database* : stockage des règles de segmentation (navigateur ou base Vercel), URL de l'API, clé API,
   test de connexion, initialisation de la base, copie des règles locales vers la base.
 
@@ -63,14 +63,16 @@ Les identifiants de la base restent côté serveur (variables d'environnement Ve
 de l'API et la clé API. En local, mettre `DATABASE_URL` et `API_KEY` dans `.env.local` (voir `.env.example`) :
 `npm run dev` exécute les mêmes fonctions.
 
-## API OneStock (catégories)
+## API OneStock (catégories, stock locations)
 
 *Settings → OneStock API* : `{{url}}`, `{{site_id}}`, `{{token}}`, langue par défaut des libellés, méthode HTTP (GET par
 défaut). Quand l'API est configurée, les valeurs du critère **Category** de l'éditeur de règle viennent de
 `{{url}}/categories` (corps `{ "site_id", "token" }`).
 
+- Les **stock locations** des règles (choix des points de stock) viennent de `{{url}}/endpoints` :
+  `{ endpoints: [{ id, name, address: { city, regions: { country: { code } } } }] }` → id stocké dans la règle, nom affiché.
 - L'appel passe par le proxy `POST /api/onestock` (fonction Vercel) : le navigateur ne peut pas appeler l'API OneStock
-  directement (CORS). Le proxy n'autorise que les chemins listés (`/categories`) et impose https.
+  directement (CORS). Le proxy n'autorise que les chemins listés (`/categories`, `/endpoints`) et impose https.
 - La réponse est un arbre `{ category: { sub_category: [{ id, display_info: { <langue>: { name } }, sub_category? }] } }` :
   chaque nœud devient une catégorie (libellé « Parent › Enfant » pour les niveaux inférieurs), nommée dans la langue par
   défaut, sinon dans la première langue disponible, sinon par son id. Les règles stockent l'**id** de la catégorie.
@@ -83,7 +85,7 @@ api/                   Fonctions serverless Vercel (règles de segmentation en b
 src/
   api/types.ts         Contrat StockAllocationApi (à implémenter côté HTTP)
   api/remoteRules.ts   Client HTTP des fonctions /api ; api/dbConfig.ts : paramètres Settings → Database
-  api/onestock.ts      Paramètres Settings → OneStock API, appel via le proxy, lecture de l'arbre des catégories
+  api/onestock.ts      Paramètres Settings → OneStock API, appel via le proxy, lecture des catégories et des endpoints
   api/mockApi.ts       Implémentation mockée (données en mémoire + localStorage)
   api/index.ts         Point unique où brancher la vraie API
   utils/stockTypes.ts  Hiérarchie des types de stock (types principaux → groupes)

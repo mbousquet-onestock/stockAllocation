@@ -15,7 +15,7 @@ import { applyRuleToLine, splitSum, summarize, toRow, unsplit } from '../utils/a
 import { appliesToStockType, byPriority, effectiveRule, matchesCriteria, normalizeText as normalize } from '../utils/rules';
 import { StockTypeTree } from '../utils/stockTypes';
 import { getDbConfig } from './dbConfig';
-import { fetchCategories, getOnestockConfig, isOnestockConfigured } from './onestock';
+import { fetchCategories, fetchEndpoints, getOnestockConfig, isOnestockConfigured } from './onestock';
 import { remoteRules } from './remoteRules';
 import { buildRules, buildStockLines, buildStockTypes, ITEMS, LOCATIONS, newLine } from './mockData';
 import type { StockAllocationApi } from './types';
@@ -453,6 +453,8 @@ export const mockApi: StockAllocationApi = {
   },
 
   async listLocations() {
+    const onestock = getOnestockConfig();
+    if (onestock.useForLocations && isOnestockConfigured(onestock)) return fetchEndpoints();
     return delay(LOCATIONS);
   },
 

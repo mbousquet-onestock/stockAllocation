@@ -5,6 +5,7 @@ import {
   DEFAULT_ONESTOCK_CONFIG,
   getOnestockConfig,
   parseCategories,
+  parseEndpoints,
   setOnestockConfig,
   type Category,
   type OnestockConfig,
@@ -13,6 +14,7 @@ import { useDataVersion } from '../components/DataVersion';
 import { CheckIcon, WarningIcon } from '../components/Icons';
 import { useToast } from '../components/Toast';
 import { Checkbox, Spinner } from '../components/ui';
+import type { StockLocation } from '../types';
 import { plural } from '../utils/format';
 
 /** Languages found in the display_info of a category tree. */
@@ -40,12 +42,14 @@ export function OnestockSettings() {
   const [showToken, setShowToken] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ categories: Category[]; languages: string[] } | { error: string }>();
+  const [endpoints, setEndpoints] = useState<{ locations: StockLocation[] } | { error: string }>();
   const dirty = JSON.stringify(config) !== JSON.stringify(saved);
   const complete = !!(config.url.trim() && config.siteId.trim() && config.token.trim());
 
   const set = (patch: Partial<OnestockConfig>) => {
     setConfig((c) => ({ ...c, ...patch }));
     setResult(undefined);
+    setEndpoints(undefined);
   };
 
   const test = async () => {
@@ -55,6 +59,17 @@ export function OnestockSettings() {
       setResult({ categories: parseCategories(data, config.language), languages: languagesOf(data) });
     } catch (e) {
       setResult({ error: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const testEndpoints = async () => {
+    setBusy(true);
+    try {
+      setEndpoints({ locations: parseEndpoints(await callOnestock('/endpoints', config)) });
+    } catch (e) {
+      setEndpoints({ error: (e as Error).message });
     } finally {
       setBusy(false);
     }
@@ -74,8 +89,9 @@ export function OnestockSettings() {
         <div>
           <h2>OneStock API</h2>
           <p className="muted">
-            Access to the OneStock API, used to list the <strong>categories</strong> of the segmentation rule criteria (
-            <code>{'{{url}}'}/categories</code> with <code>site_id</code> and <code>token</code>). The browser cannot call the API
+            Access to the OneStock API, used to list the <strong>categories</strong> (<code>{'{{url}}'}/categories</code>) and the{' '}
+            <strong>stock locations</strong> (<code>{'{{url}}'}/endpoints</code>) of the segmentation rules, with <code>site_id</code> and{' '}
+            <code>token</code>. The browser cannot call the API
             directly: the calls go through the proxy of the application (<code>{proxy.apiUrl || '/api'}/onestock</code>).
           </p>
         </div>
@@ -137,10 +153,18 @@ export function OnestockSettings() {
           onChange={(useForCategories) => set({ useForCategories })}
           label="Use the OneStock categories in the segmentation rule criteria"
         />
+        <Checkbox
+          checked={config.useForLocations}
+          onChange={(useForLocations) => set({ useForLocations })}
+          label="Use the OneStock endpoints as stock locations of the segmentation rules"
+        />
 
         <div className="db-actions">
           <button type="button" className="btn btn--secondary" disabled={busy || !complete} onClick={test}>
             Test — load the categories
+          </button>
+          <button type="button" className="btn btn--secondary" disabled={busy || !complete} onClick={testEndpoints}>
+            Test — load the stock locations
           </button>
           {busy && <Spinner />}
         </div>
@@ -169,6 +193,30 @@ export function OnestockSettings() {
             )}
           </div>
         )}
+        {endpoints && (
+          <div className={`db-status ${'error' in endpoints ? 'is-error' : 'is-ok'}`}>
+            {'error' in endpoints ? (
+              <div className="db-status__title">
+                <WarningIcon /> {endpoints.error}
+              </div>
+            ) : (
+              <>
+                <div className="db-status__title">
+                  <CheckIcon /> {plural(endpoints.locations.length, 'stock location')} loaded
+                </div>
+                <ul className="category-preview">
+                  {endpoints.locations.slice(0, 20).map((l) => (
+                    <li key={l.id}>
+                      {l.name} <code>{l.id}</code>
+                      {l.city && <span className="muted"> · {[l.city, l.country].filter(Boolean).join(', ')}</span>}
+                    </li>
+                  ))}
+                  {endpoints.locations.length > 20 && <li className="muted">… and {endpoints.locations.length - 20} more</li>}
+                </ul>
+              </>
+            )}
+          </div>
+        )}
         {dirty && <span className="text-warning small">Unsaved changes: click Save to apply them.</span>}
       </div>
 
@@ -176,7 +224,8 @@ export function OnestockSettings() {
         <strong>Notes</strong>
         <ul>
           <li>
-            The rule criteria store the category <strong>id</strong> (e.g. <code>renault_clio_vi</code>); the name is only displayed.
+            The rules store the category and endpoint <strong>ids</strong> (e.g. <code>renault_clio_vi</code>,{' '}
+            <code>michelin_clermont-warehouse</code>); the names are only displayed.
           </li>
           <li>
             The proxy uses the API URL and API key of <em>Settings → Database</em>. It only relays the allowed OneStock paths.

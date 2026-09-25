@@ -1,3 +1,4 @@
+import type { StockLocation } from '../types';
 import { getDbConfig } from './dbConfig';
 
 /**
@@ -16,10 +17,12 @@ export interface OnestockConfig {
   language: string;
   /** Use the API for the category values of the rule criteria. */
   useForCategories: boolean;
+  /** Use the API (endpoints) for the stock locations of the rules. */
+  useForLocations: boolean;
 }
 
 const KEY = 'stock-allocation:onestock-config';
-export const DEFAULT_ONESTOCK_CONFIG: OnestockConfig = { url: '', siteId: '', token: '', method: 'GET', language: 'fr', useForCategories: true };
+export const DEFAULT_ONESTOCK_CONFIG: OnestockConfig = { url: '', siteId: '', token: '', method: 'GET', language: 'fr', useForCategories: true, useForLocations: true };
 
 export function getOnestockConfig(): OnestockConfig {
   try {
@@ -38,6 +41,7 @@ export function setOnestockConfig(config: OnestockConfig) {
     /* ignore */
   }
   categoriesCache = undefined;
+  endpointsCache = undefined;
 }
 
 export const isOnestockConfigured = (c = getOnestockConfig()) => !!(c.url.trim() && c.siteId.trim() && c.token.trim());
@@ -131,3 +135,35 @@ export async function fetchCategories(force = false): Promise<Category[]> {
 
 /** Label of a category value, from the last loaded list. */
 export const categoryLabel = (id: string) => categoriesCache?.list.find((c) => c.id === id)?.label ?? id;
+
+interface EndpointNode {
+  id?: string;
+  name?: string;
+  address?: { city?: string; regions?: { country?: { code?: string } } };
+}
+
+/** Reads the stock locations of { endpoints: [{ id, name, address: { city, regions: { country: { code } } } }] }. */
+export function parseEndpoints(data: unknown): StockLocation[] {
+  const list = Array.isArray(data) ? data : (data as { endpoints?: unknown } | null)?.endpoints;
+  if (!Array.isArray(list)) throw new Error('No endpoint list found in the answer (expected { endpoints: [...] })');
+  const locations = (list as EndpointNode[])
+    .filter((e) => e && e.id)
+    .map((e) => ({
+      id: String(e.id),
+      code: String(e.id),
+      name: e.name || String(e.id),
+      city: e.address?.city || undefined,
+      country: e.address?.regions?.country?.code || undefined,
+    }));
+  return [...new Map(locations.map((l) => [l.id, l])).values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+let endpointsCache: { at: number; list: StockLocation[] } | undefined;
+
+/** Stock locations (OneStock endpoints), cached 5 minutes. */
+export async function fetchEndpoints(force = false): Promise<StockLocation[]> {
+  if (!force && endpointsCache && Date.now() - endpointsCache.at < CACHE_MS) return endpointsCache.list;
+  const list = parseEndpoints(await callOnestock('/endpoints'));
+  endpointsCache = { at: Date.now(), list };
+  return list;
+}
