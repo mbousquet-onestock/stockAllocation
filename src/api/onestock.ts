@@ -339,6 +339,16 @@ export interface StockRecord {
 const STOCK_BATCH = 50;
 const STOCK_CACHE_MS = 2 * 60 * 1000;
 const stockCache = new Map<string, { at: number; records: StockRecord[] }>();
+let lastStockRead: number | undefined;
+
+/** When the stock was last read from OneStock (ms), for display. */
+export const stockReadAt = () => lastStockRead;
+
+/** Forgets every cached stock: the next display reads OneStock again. */
+export function refreshAllStock() {
+  stockCache.clear();
+  stockTotals = undefined;
+}
 
 export const useOnestockStock = (c = getOnestockConfig()) => c.useForStock && isOnestockConfigured(c);
 
@@ -359,6 +369,7 @@ export async function fetchStock(itemIds: string[], config = getOnestockConfig()
       byItem.get(r.item_id)!.push({ ...r, quantity: Number(r.quantity) || 0 });
     });
     byItem.forEach((records, id) => stockCache.set(id, { at: now, records }));
+    lastStockRead = now;
   }
   return itemIds.flatMap((id) => stockCache.get(id)?.records ?? []);
 }
@@ -368,29 +379,42 @@ let stockTotals: { at: number; totals: Map<string, number>; key: string } | unde
 /**
  * Total stock by item, for ordering the item list (items with stock first).
  * One stock_export call without item_filter (the whole export of {{stock_request}}); if the API refuses it,
- * falls back to item_filter batches over the given ids. Results also fill the per-item stock cache.
+ * falls back to item_filter batches over the given ids. Used for ordering only, never for displayed quantities.
  */
 export async function fetchStockTotals(itemIds: string[], config = getOnestockConfig()): Promise<Map<string, number>> {
+  const sum = (records: StockRecord[]) => {
+    const totals = new Map<string, number>();
+    records.forEach((r) => totals.set(r.item_id, (totals.get(r.item_id) ?? 0) + r.quantity));
+    return totals;
+  };
+  // Small lists (e.g. a search): exact totals with item_filter calls.
+  if (itemIds.length <= EXACT_TOTALS_MAX) return sum(await fetchStock(itemIds, config));
   const key = [config.url, config.siteId, config.stockRequest].join('|');
-  if (stockTotals && stockTotals.key === key && Date.now() - stockTotals.at < STOCK_CACHE_MS) return stockTotals.totals;
+  if (!(stockTotals && stockTotals.key === key && Date.now() - stockTotals.at < STOCK_CACHE_MS)) stockTotals = { at: Date.now(), totals: sum(await exportRecords(itemIds, config)), key };
+  // Stock already read item by item (exact) wins over the export.
+  const totals = new Map(stockTotals.totals);
+  stockCache.forEach((entry, id) => {
+    if (Date.now() - entry.at < STOCK_CACHE_MS) totals.set(id, entry.records.reduce((t, r) => t + r.quantity, 0));
+  });
+  return totals;
+}
+
+const EXACT_TOTALS_MAX = 250;
+
+/** Whole export (no item_filter), or item_filter batches when the API refuses it. */
+async function exportRecords(itemIds: string[], config: OnestockConfig): Promise<StockRecord[]> {
   let records: StockRecord[];
   try {
     const data = await callOnestock<{ stocks?: StockRecord[] }>('/stock_export', config, {
       ...(config.stockRequest.trim() ? { request_name: config.stockRequest.trim() } : {}),
     });
     if (!Array.isArray(data?.stocks)) throw new Error('No stocks in the answer');
+    // Only used for the order of the list: the quantities displayed always come from item_filter calls.
     records = data.stocks.map((r) => ({ ...r, quantity: Number(r.quantity) || 0 }));
-    const now = Date.now();
-    const byItem = new Map<string, StockRecord[]>(itemIds.map((id) => [id, []]));
-    records.forEach((r) => r.item_id && (byItem.get(r.item_id) ?? byItem.set(r.item_id, []).get(r.item_id)!).push(r));
-    byItem.forEach((list, id) => stockCache.set(id, { at: now, records: list }));
   } catch {
     records = await fetchStock(itemIds, config);
   }
-  const totals = new Map<string, number>();
-  records.forEach((r) => totals.set(r.item_id, (totals.get(r.item_id) ?? 0) + r.quantity));
-  stockTotals = { at: Date.now(), totals, key };
-  return totals;
+  return records;
 }
 
 /** One line of stock_import: absolute quantity of an item, in an endpoint, on a stock type (segment). */

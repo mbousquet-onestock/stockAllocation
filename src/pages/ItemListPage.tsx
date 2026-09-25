@@ -5,7 +5,7 @@ import { useDataVersion } from '../components/DataVersion';
 import { CloseIcon, DownloadIcon, WarningIcon } from '../components/Icons';
 import { Checkbox, ItemIdentity, Pagination, QtyBadge, SortHeader, Spinner } from '../components/ui';
 import { useStockTypes } from '../components/StockTypes';
-import { useOnestockStock } from '../api/onestock';
+import { refreshAllStock, stockReadAt, useOnestockStock } from '../api/onestock';
 import { ApplyRulesOnestockModal } from '../features/ApplyRulesOnestockModal';
 import { ItemSearch } from '../features/ItemSearch';
 import { RuleEditorModal } from '../features/RuleEditorModal';
@@ -52,6 +52,8 @@ export function ItemListPage() {
   );
   const rule = useAsync(() => (ruleId ? api.getRule(ruleId) : Promise.resolve(undefined)), [ruleId, version]);
   const warnings = useAsync(() => api.getWarningSummary(), [version]);
+  // Warning chips are computed on the local stock: hidden when the stock comes from OneStock.
+  const onestockStock = useOnestockStock();
 
   const rows = list.data?.data ?? [];
   const pageSelected = rows.filter((r) => selected.has(r.item.id)).length;
@@ -102,7 +104,7 @@ export function ItemListPage() {
         </button>
       </div>
 
-      {(ruleId || (warnings.data?.length ?? 0) > 0) && (
+      {(ruleId || (!onestockStock && (warnings.data?.length ?? 0) > 0)) && (
         <div className="chips">
           {ruleId && (
             <span className="chip chip--selected">
@@ -112,7 +114,7 @@ export function ItemListPage() {
               </button>
             </span>
           )}
-          {(warnings.data ?? []).map((w) => (
+          {(onestockStock ? [] : warnings.data ?? []).map((w) => (
             <button
               type="button"
               key={w.stockTypeId}
@@ -142,6 +144,21 @@ export function ItemListPage() {
           </span>
         )}
         {!sort && <span className="muted small">Items with stock first</span>}
+        {onestockStock && list.data && (
+          <span className="muted small">
+            · Stock read from OneStock{stockReadAt() ? ` at ${new Date(stockReadAt()!).toLocaleTimeString('fr-FR')}` : ''} ·{' '}
+            <button
+              type="button"
+              className="link"
+              onClick={() => {
+                refreshAllStock();
+                bump();
+              }}
+            >
+              Refresh stock
+            </button>
+          </span>
+        )}
         <span className="grow" />
         {pagination}
       </div>

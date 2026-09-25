@@ -84,8 +84,11 @@ défaut). Quand l'API est configurée, les valeurs du critère **Category** de l
   quantité du groupe, un enregistrement sur le type principal (`Container`) ce qui reste dessus. Les lignes affichées
   (article × endpoint × type principal × purchase order) sont en lecture seule ; les seuils viennent de la règle qui
   s'appliquerait. Les types non configurés sont signalés et ignorés.
-  Pour mettre les articles avec du stock en premier, un appel `stock_export` sans `item_filter` récupère tout l'export
-  (cache 2 min) ; si l'API le refuse, le stock est demandé par lots d'ids.
+  Les quantités affichées (liste et détail) viennent toujours d'appels filtrés par `item_filter.ids`. Pour mettre les
+  articles avec du stock en premier : jusqu'à 250 articles (ex. après une recherche), totaux exacts par ces mêmes appels ;
+  au-delà, un appel `stock_export` sans `item_filter` (tout l'export, cache 2 min) sert uniquement à l'ordre, corrigé par
+  le stock déjà lu article par article. *Refresh stock* (liste) relit OneStock. Les pastilles « Below threshold »,
+  calculées sur le stock local, sont masquées quand le stock vient de OneStock.
 - Les **modifications de stock** sont renvoyées avec `PATCH {{url}}/stock_import`
   (`{ import: { incremental: false }, stocks: [{ item_id, endpoint_id, quantity, type, purchase_order_number, eta_start,
   eta_end }] }`, toujours non incrémental : quantités absolues), par lots de 500 enregistrements :
