@@ -12,3 +12,7 @@ Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
 3:21:28 PM [vite] (client) hmr update /src/App.tsx, /src/pages/ItemDetailPage.tsx, /src/pages/ItemListPage.tsx, /src/pages/SettingsPage.tsx, /src/components/StockTypes.tsx, /src/pages/RulesPage.tsx, /src/features/EditStockLineModal.tsx, /src/features/ItemSearch.tsx, /src/features/StockImportModal.tsx, /src/features/ApplyRulesOnestockModal.tsx, /src/features/RuleEditorModal.tsx, /src/features/CriteriaEditor.tsx, /src/pages/DatabaseSettings.tsx
 3:21:28 PM [vite] (client) hmr update /src/features/ApplyRulesOnestockModal.tsx
 3:21:28 PM [vite] (client) hmr update /src/features/EditStockLineModal.tsx
+3:26:42 PM [vite] (client) hmr update /src/pages/ItemDetailPage.tsx
+3:26:42 PM [vite] (client) hmr update /src/styles.css
+3:27:01 PM [vite] (client) hmr update /src/pages/ItemDetailPage.tsx
+3:27:01 PM [vite] (client) hmr update /src/styles.css

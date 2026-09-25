@@ -344,3 +344,5 @@ main { padding: 0 40px 100px; }
 .col-split .stack-bar--mini { height: 8px; }
 .split-pct { display: flex; gap: 10px; font-size: 11px; color: var(--muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
 .table th.col-group-cell, .table th.col-split { font-size: 14px; }
+.select--sm { height: 30px; font-size: 13px; }
+.chip--clickable { cursor: pointer; font: inherit; font-family: ui-monospace, monospace; font-size: 12px; }
