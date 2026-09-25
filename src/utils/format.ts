@@ -16,4 +16,5 @@ export function formatPeriod(p: ActivationPeriod, long = false): string {
 
 export const todayIso = (): string => new Date().toISOString().slice(0, 10);
 
-export const plural = (n: number, word: string): string => `${n} ${word}${n > 1 ? 's' : ''}`;
+export const plural = (n: number, word: string): string =>
+  `${n} ${n > 1 ? (/[^aeiou]y$/.test(word) ? `${word.slice(0, -1)}ies` : `${word}s`) : word}`;

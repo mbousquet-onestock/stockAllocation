@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api';
 import { DatabaseSettings } from './DatabaseSettings';
+import { OnestockSettings } from './OnestockSettings';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { useDataVersion } from '../components/DataVersion';
 import { ArrowDownIcon, ArrowUpIcon, EditIcon, TrashIcon, TruckIcon, WarehouseIcon } from '../components/Icons';
@@ -210,6 +211,7 @@ function StockTypesSettings() {
 const MENUS = [
   { key: 'stock-types', label: 'Stock types' },
   { key: 'database', label: 'Database' },
+  { key: 'onestock', label: 'OneStock API' },
 ];
 
 export function SettingsPage() {
@@ -227,6 +229,7 @@ export function SettingsPage() {
       <section className="card page grow">
         {menu === 'stock-types' && <StockTypesSettings />}
         {menu === 'database' && <DatabaseSettings />}
+        {menu === 'onestock' && <OnestockSettings />}
       </section>
     </div>
   );

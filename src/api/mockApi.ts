@@ -15,6 +15,7 @@ import { applyRuleToLine, splitSum, summarize, toRow, unsplit } from '../utils/a
 import { appliesToStockType, byPriority, effectiveRule, matchesCriteria, normalizeText as normalize } from '../utils/rules';
 import { StockTypeTree } from '../utils/stockTypes';
 import { getDbConfig } from './dbConfig';
+import { fetchCategories, getOnestockConfig, isOnestockConfigured } from './onestock';
 import { remoteRules } from './remoteRules';
 import { buildRules, buildStockLines, buildStockTypes, ITEMS, LOCATIONS, newLine } from './mockData';
 import type { StockAllocationApi } from './types';
@@ -332,6 +333,14 @@ export const mockApi: StockAllocationApi = {
 
   async listAttributeValues(attribute, search) {
     const q = normalize(search);
+    const onestock = getOnestockConfig();
+    if (attribute === 'category' && onestock.useForCategories && isOnestockConfigured(onestock)) {
+      const categories = await fetchCategories();
+      return categories
+        .filter((c) => !q || normalize(c.id).includes(q) || normalize(c.label).includes(q))
+        .slice(0, 50)
+        .map((c) => ({ value: c.id, label: c.label !== c.id ? c.label : undefined }));
+    }
     const counts = new Map<string, { label?: string; itemCount: number }>();
     ITEMS.forEach((i) => {
       const value = itemAttribute(i, attribute);

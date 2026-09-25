@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api';
+import { categoryLabel } from '../api/onestock';
 import { CloseIcon, TrashIcon } from '../components/Icons';
 import { ATTRIBUTES, attributeLabel } from '../config/attributes';
 import type { AttributeKey, Criterion } from '../types';
@@ -67,13 +68,18 @@ export function ValuesInput({
           }}
         />
       </div>
+      {suggestions.error && <span className="text-error small">{suggestions.error.message}</span>}
       {open && options.length > 0 && (
         <div className="dropdown">
           {options.map((o) => (
             <button type="button" key={o.value} className="dropdown__option" onMouseDown={(e) => e.preventDefault()} onClick={() => add(o.value)}>
               <span className="grow">
                 {display(o.value)}
-                {o.label && <span className="muted"> — {o.label}</span>}
+                {o.label && o.label !== display(o.value) ? (
+                  <span className="muted"> — {o.label}</span>
+                ) : (
+                  display(o.value) !== o.value && <span className="muted"> — {o.value}</span>
+                )}
               </span>
               {o.itemCount !== undefined && <span className="muted small">{plural(o.itemCount, 'item')}</span>}
             </button>
@@ -112,6 +118,7 @@ export function CriteriaEditor({ criteria, onChange }: { criteria: Criterion[]; 
             onChange={(values) => update(i, { values })}
             load={(q) => api.listAttributeValues(c.attribute, q)}
             loadKey={c.attribute}
+            display={c.attribute === 'category' ? categoryLabel : undefined}
             placeholder={`Choose ${attributeLabel(c.attribute).toLowerCase()} values…`}
           />
           <button

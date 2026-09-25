@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { getDbConfig } from '../api/dbConfig';
+import { categoryLabel } from '../api/onestock';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { useDataVersion } from '../components/DataVersion';
 import { ArrowDownIcon, ArrowUpIcon, CopyIcon, DownloadIcon, PlayIcon, TrashIcon } from '../components/Icons';
@@ -243,7 +244,8 @@ export function RulesPage() {
                     <div className="criteria-chips">
                       {rule.criteria.map((c) => (
                         <span className="chip chip--criterion" key={c.attribute}>
-                          <span className="muted">{attributeLabel(c.attribute)}:</span> {c.values.join(', ')}
+                          <span className="muted">{attributeLabel(c.attribute)}:</span>{' '}
+                          {(c.attribute === 'category' ? c.values.map(categoryLabel) : c.values).join(', ')}
                         </span>
                       ))}
                     </div>

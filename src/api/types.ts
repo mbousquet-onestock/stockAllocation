@@ -45,7 +45,7 @@ export interface StockAllocationApi {
   /** Items matched by some criteria (rule editor preview). */
   previewCriteria(rule: Pick<SegmentationRule, 'criteria'>): Promise<RulePreview>;
   /** Existing values of an item characteristic, for criteria suggestions. */
-  listAttributeValues(attribute: AttributeKey, search: string): Promise<Array<{ value: string; label?: string; itemCount: number }>>;
+  listAttributeValues(attribute: AttributeKey, search: string): Promise<Array<{ value: string; label?: string; itemCount?: number }>>;
   /** Purchase orders present on future stock of these types (empty = all), for suggestions. */
   listPurchaseOrders(stockTypeIds: string[], search: string): Promise<Array<{ value: string; itemCount: number }>>;
   /** Re-runs the rules on the current stock (all lines, or those of the items matched by one rule). */
