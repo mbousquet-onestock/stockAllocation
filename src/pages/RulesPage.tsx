@@ -333,7 +333,7 @@ export function RulesPage() {
         {list.loading && !list.data && !list.error && <Spinner />}
         {list.error && (
           <div className="text-error empty">
-            {list.error.message} — check Settings → Database.
+            {list.error.message} — check {/onestock|proxy/i.test(list.error.message) ? 'Settings → OneStock API' : 'Settings → Database'}.
           </div>
         )}
         {list.data?.total === 0 && (

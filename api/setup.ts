@@ -6,4 +6,4 @@ export default route({
     await ensureSchema();
     return { ok: true };
   },
-});
+}, { schema: false });

@@ -1,8 +1,15 @@
-import type { SegmentationRule } from '../types';
+import type { SegmentationRule, StockType } from '../types';
 import { logApiCall } from './apiLog';
 import { getDbConfig, type DbConfig } from './dbConfig';
+import { siteHeader } from './site';
+
+export interface SiteSettings {
+  stockTypes?: StockType[];
+  onestock?: Record<string, unknown>;
+}
 
 export interface DbHealth {
+  siteId?: string;
   ok: boolean;
   configured: boolean;
   error?: string;
@@ -34,6 +41,7 @@ async function call<T>(path: string, init: RequestInit = {}, config: DbConfig = 
       headers: {
         'Content-Type': 'application/json',
         ...(config.apiKey ? { 'x-api-key': config.apiKey } : {}),
+        ...siteHeader(),
         ...init.headers,
       },
     });
@@ -71,4 +79,7 @@ export const remoteRules = {
   remove: (id: string) => call<{ ok: boolean }>(`/rules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   reorder: (order: string[]) => call<SegmentationRule[]>('/rules', json('PUT', { order })),
   replaceAll: (rules: SegmentationRule[], config?: DbConfig) => call<SegmentationRule[]>('/rules', json('PUT', { rules }), config),
+  /** Settings shared by the users of the site (stock types, OneStock options — no secrets). */
+  getSiteSettings: () => call<{ siteId: string; settings: SiteSettings | null; updatedAt: string | null }>('/settings'),
+  saveSiteSettings: (patch: SiteSettings) => call<{ siteId: string; settings: SiteSettings }>('/settings', json('PUT', patch)),
 };

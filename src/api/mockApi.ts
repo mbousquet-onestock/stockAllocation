@@ -18,6 +18,7 @@ import { applyRuleToLine, splitSum, summarize, toRow, unsplit } from '../utils/a
 import { appliesToStockType, byPriority, effectiveRule, matchesCriteria, normalizeText as normalize } from '../utils/rules';
 import { StockTypeTree } from '../utils/stockTypes';
 import { getDbConfig } from './dbConfig';
+import { currentSiteId } from './site';
 import {
   cachedItem,
   fetchCategories,
@@ -93,6 +94,31 @@ let remoteCache: SegmentationRule[] = [];
 const rules = (): SegmentationRule[] => (remote() ? remoteCache : db.rules);
 async function syncRules() {
   if (remote()) remoteCache = await remoteRules.list();
+}
+
+// ---------------------------------------------------------------------------
+// Stock types shared by the users of a site (database, per site_id)
+// ---------------------------------------------------------------------------
+
+const siteShared = () => remote() && !!currentSiteId();
+
+/** Loads the stock types of the site; the first computer of a site seeds them with its own. */
+async function syncStockTypes() {
+  if (!siteShared()) return;
+  try {
+    const { settings } = await remoteRules.getSiteSettings();
+    if (settings?.stockTypes?.length) {
+      db.stockTypes = settings.stockTypes;
+      persist();
+    } else await remoteRules.saveSiteSettings({ stockTypes: db.stockTypes });
+  } catch (e) {
+    // Database unreachable: keep working with the local copy.
+    console.warn('Stock types not synced with the database:', (e as Error).message);
+  }
+}
+
+async function pushStockTypes() {
+  if (siteShared()) await remoteRules.saveSiteSettings({ stockTypes: db.stockTypes });
 }
 const linesOf = (itemId: string) => db.lines.filter((l) => l.itemId === itemId);
 // ---------------------------------------------------------------------------
@@ -223,6 +249,7 @@ function validateStockType(input: StockTypeInput, id?: string) {
 export const mockApi: StockAllocationApi = {
   // --- Stock types
   async listStockTypes() {
+    await syncStockTypes();
     return delay(tree().all);
   },
 
@@ -244,6 +271,7 @@ export const mockApi: StockAllocationApi = {
     };
     db.stockTypes.push(type);
     persist();
+    await pushStockTypes();
     return delay(type);
   },
 
@@ -272,6 +300,7 @@ export const mockApi: StockAllocationApi = {
       }
     }
     persist();
+    await pushStockTypes();
     return delay(type);
   },
 
@@ -285,6 +314,7 @@ export const mockApi: StockAllocationApi = {
     db.stockTypes = db.stockTypes.filter((t) => !ids.includes(t.id));
     db.lines.forEach((l) => ids.forEach((g) => delete l.split[g]));
     persist();
+    await pushStockTypes();
     return delay(undefined);
   },
 
@@ -296,6 +326,7 @@ export const mockApi: StockAllocationApi = {
     const other = siblings[i + direction];
     if (other) [type.position, other.position] = [other.position, type.position];
     persist();
+    await pushStockTypes();
     return delay(undefined);
   },
 

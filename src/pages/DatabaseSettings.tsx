@@ -67,7 +67,8 @@ export function DatabaseSettings() {
           <h2>Database</h2>
           <p className="muted">
             Storage of the <strong>segmentation rules</strong>. The rules can be kept in this browser (demo data) or in a Postgres database
-            hosted on Vercel, shared by every user. The database credentials stay on the server (Vercel environment variables): the
+            hosted on Vercel, shared by every user of the same <strong>site</strong> (OneStock site ID): rules, stock types, OneStock
+            options and API call history are stored per site. The database credentials stay on the server (Vercel environment variables): the
             application only needs the address of its API and, if configured, an API key.
           </p>
         </div>
@@ -142,7 +143,9 @@ export function DatabaseSettings() {
                   <dd>{(health as DbHealth).version}</dd>
                   <dt>Rules table</dt>
                   <dd>{(health as DbHealth).schemaReady ? 'Ready' : 'Not created — click "Initialize database"'}</dd>
-                  <dt>Rules stored</dt>
+                  <dt>Site</dt>
+                  <dd>{(health as DbHealth).siteId || <span className="text-warning">no site ID — set it in Settings → OneStock API</span>}</dd>
+                  <dt>Rules of the site</dt>
                   <dd>{(health as DbHealth).ruleCount ?? 0}</dd>
                   <dt>API key</dt>
                   <dd>{(health as DbHealth).apiKeyRequired ? 'Required (valid)' : 'Not required'}</dd>

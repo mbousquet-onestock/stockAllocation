@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api';
+import { getDbConfig } from '../api/dbConfig';
+import { currentSiteId } from '../api/site';
 import { DatabaseSettings } from './DatabaseSettings';
 import { OnestockSettings } from './OnestockSettings';
 import { ApiCallsSettings } from './ApiCallsSettings';
@@ -122,6 +124,16 @@ function StockTypesSettings() {
           <p className="muted">
             Stock is always updated on a stock type. Each stock type is a segment and can be divided into groups (also segments): the
             segmentation rules then split the stock of the main type onto its groups, the rest stays on the main type.
+          </p>
+          <p className="muted small">
+            {getDbConfig().mode === 'remote' && currentSiteId() ? (
+              <>
+                <strong>Shared by site:</strong> stored in the database for the site <code>{currentSiteId()}</code> — every computer of
+                the site uses the same stock types.
+              </>
+            ) : (
+              <>Stored in this browser only (use the Vercel database and a site ID to share them).</>
+            )}
           </p>
         </div>
         <button type="button" className="btn btn--primary" onClick={() => setEditing({})}>

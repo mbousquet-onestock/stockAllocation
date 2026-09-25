@@ -1,6 +1,7 @@
 import type { Item, StockLocation } from '../types';
 import { logApiCall } from './apiLog';
 import { getDbConfig } from './dbConfig';
+import { remoteRules } from './remoteRules';
 
 /**
  * OneStock API settings (Settings → OneStock API) and calls through the application proxy (/api/onestock).
@@ -522,4 +523,35 @@ export async function pushStock(records: StockImportRecord[], config = getOnesto
 export function invalidateStock(itemIds: string[]) {
   itemIds.forEach((id) => stockCache.delete(id));
   stockTotals = undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Settings shared by the users of a site (database, per site_id)
+// ---------------------------------------------------------------------------
+
+/** Options shared through the database: everything but the site_id and the token (kept on each computer). */
+export function sharedOnestockSettings(config: OnestockConfig): Record<string, unknown> {
+  const { siteId: _site, token: _token, ...shared } = config;
+  return shared;
+}
+
+const sharingEnabled = (config: OnestockConfig) => getDbConfig().mode === 'remote' && !!config.siteId.trim();
+
+/** Saves the shared OneStock options of the site in the database (when the Vercel database is used). */
+export async function publishOnestockSettings(config = getOnestockConfig()): Promise<boolean> {
+  if (!sharingEnabled(config)) return false;
+  await remoteRules.saveSiteSettings({ onestock: sharedOnestockSettings(config) });
+  return true;
+}
+
+/** Loads the shared OneStock options of the site from the database into this computer's settings. */
+export async function loadSharedOnestockSettings(): Promise<{ loaded: boolean; updatedAt?: string | null }> {
+  const current = getOnestockConfig();
+  if (!sharingEnabled(current)) return { loaded: false };
+  const { settings, updatedAt } = await remoteRules.getSiteSettings();
+  const shared = settings?.onestock;
+  if (!shared) return { loaded: false, updatedAt };
+  const next = { ...current, ...(shared as Partial<OnestockConfig>), siteId: current.siteId, token: current.token };
+  if (JSON.stringify(next) !== JSON.stringify(current)) setOnestockConfig(next);
+  return { loaded: true, updatedAt };
 }

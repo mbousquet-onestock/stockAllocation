@@ -49,6 +49,23 @@ npm run build      # typecheck + build de production
 - **Settings** → *Database* : stockage des règles de segmentation (navigateur ou base Vercel), URL de l'API, clé API,
   test de connexion, initialisation de la base, copie des règles locales vers la base.
 
+## Paramètres partagés par site
+
+Sans base de données, tous les paramètres sont propres à chaque navigateur. Avec la base Vercel, les données sont
+**rattachées au site OneStock** (`site_id`, envoyé dans l'en-tête `x-site-id`) et partagées par tous les postes du site :
+
+| Donnée | Stockage |
+| --- | --- |
+| Règles de segmentation | table `segmentation_rules` (clé `site_id` + `id`) |
+| Types de stock | table `site_settings` (`stockTypes`) — le premier poste d'un site y dépose les siens |
+| Options OneStock (url, langue, méthode, stock request, options) | table `site_settings` (`onestock`) |
+| Historique des appels API | table `api_calls` (`site_id`) — *Clear* ne purge que le site |
+| Accès à la base (API URL, clé), **site ID** et **token** | navigateur de chaque poste (le token n'est jamais stocké en base) |
+
+Sur un nouveau poste : *Settings → Database* (Vercel database, API URL, clé) puis *Settings → OneStock API* (site ID +
+token) ; le reste est chargé depuis la base. Les règles enregistrées avant ce découpage (sans site) sont reprises par
+le premier site qui lit ses règles.
+
 ## Base de données Vercel (règles de segmentation)
 
 Les règles peuvent être stockées dans une base **Postgres (Neon) sur Vercel**, via les fonctions serverless de `api/` :
@@ -60,6 +77,7 @@ Les règles peuvent être stockées dans une base **Postgres (Neon) sur Vercel**
 | GET / POST | `/api/rules` | Liste (par priorité) / création |
 | PUT | `/api/rules` | `{ order: [ids] }` ordre des priorités, ou `{ rules: [...] }` remplacement complet |
 | GET / PUT / DELETE | `/api/rules/:id` | Lecture / modification / suppression |
+| GET / PUT | `/api/settings` | Paramètres partagés du site (types de stock, options OneStock sans secret) |
 | GET / POST / DELETE | `/api/api-calls` | Historique des appels API : lecture (`limit`, `offset`, `target`, `errors`, `q`) / ajout par lots / purge |
 
 Mise en place :

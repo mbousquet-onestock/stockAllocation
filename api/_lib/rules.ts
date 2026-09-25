@@ -1,6 +1,6 @@
 import { HttpError, sql } from './db.js';
 
-/** Segmentation rule as stored: the full rule JSON, with id and priority as columns. */
+/** Segmentation rule as stored: the full rule JSON, with id and priority as columns, scoped by site. */
 export interface StoredRule {
   id: string;
   priority: number;
@@ -22,13 +22,22 @@ type Row = { id: string; priority: number; data: Record<string, unknown>; update
 
 const toRule = (r: Row): StoredRule => ({ ...r.data, id: r.id, priority: r.priority, updatedAt: r.updated_at.toISOString() });
 
-export async function listRules(): Promise<StoredRule[]> {
-  const rows = await sql()<Row[]>`select id, priority, data, updated_at from segmentation_rules order by priority, id`;
+/** Rules stored before the site scoping (site_id '') go to the first site that reads its rules. */
+async function adoptLegacyRules(site: string) {
+  if (!site) return;
+  const [{ own }] = await sql()<{ own: number }[]>`select count(*)::int as own from segmentation_rules where site_id = ${site}`;
+  if (own === 0) await sql()`update segmentation_rules set site_id = ${site} where site_id = ''`;
+}
+
+export async function listRules(site: string): Promise<StoredRule[]> {
+  await adoptLegacyRules(site);
+  const rows = await sql()<Row[]>`
+    select id, priority, data, updated_at from segmentation_rules where site_id = ${site} order by priority, id`;
   return rows.map(toRule);
 }
 
-export async function getRule(id: string): Promise<StoredRule> {
-  const [row] = await sql()<Row[]>`select id, priority, data, updated_at from segmentation_rules where id = ${id}`;
+export async function getRule(site: string, id: string): Promise<StoredRule> {
+  const [row] = await sql()<Row[]>`select id, priority, data, updated_at from segmentation_rules where site_id = ${site} and id = ${id}`;
   if (!row) throw new HttpError(404, `Rule ${id} not found`);
   return toRule(row);
 }
@@ -39,53 +48,55 @@ function dataOf(rule: Record<string, unknown>) {
   return data;
 }
 
-export async function insertRule(rule: Record<string, unknown>): Promise<StoredRule> {
+export async function insertRule(site: string, rule: Record<string, unknown>): Promise<StoredRule> {
   checkRule(rule);
   const id = typeof rule.id === 'string' && rule.id ? rule.id : `rule-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const [{ next }] = await sql()<{ next: number }[]>`select coalesce(max(priority), 0) + 1 as next from segmentation_rules`;
+  const [{ next }] = await sql()<{ next: number }[]>`
+    select coalesce(max(priority), 0) + 1 as next from segmentation_rules where site_id = ${site}`;
   const priority = typeof rule.priority === 'number' ? rule.priority : next;
   const [row] = await sql()<Row[]>`
-    insert into segmentation_rules (id, priority, data)
-    values (${id}, ${priority}, ${sql().json(dataOf(rule) as never)})
+    insert into segmentation_rules (site_id, id, priority, data)
+    values (${site}, ${id}, ${priority}, ${sql().json(dataOf(rule) as never)})
     returning id, priority, data, updated_at`;
   return toRule(row);
 }
 
-export async function updateRule(id: string, rule: Record<string, unknown>): Promise<StoredRule> {
+export async function updateRule(site: string, id: string, rule: Record<string, unknown>): Promise<StoredRule> {
   checkRule(rule);
   const [row] = await sql()<Row[]>`
     update segmentation_rules set data = ${sql().json(dataOf(rule) as never)}, updated_at = now()
-    where id = ${id}
+    where site_id = ${site} and id = ${id}
     returning id, priority, data, updated_at`;
   if (!row) throw new HttpError(404, `Rule ${id} not found`);
   return toRule(row);
 }
 
-export async function deleteRule(id: string) {
-  await sql()`delete from segmentation_rules where id = ${id}`;
+export async function deleteRule(site: string, id: string) {
+  await sql()`delete from segmentation_rules where site_id = ${site} and id = ${id}`;
   // Keep priorities contiguous (1..n).
   await sql()`
     update segmentation_rules r set priority = o.rn
-    from (select id, row_number() over (order by priority, id) as rn from segmentation_rules) o
-    where r.id = o.id`;
+    from (select id, row_number() over (order by priority, id) as rn from segmentation_rules where site_id = ${site}) o
+    where r.site_id = ${site} and r.id = o.id`;
 }
 
 /** Sets the priority order: ids in their new order. */
-export async function reorderRules(ids: string[]) {
+export async function reorderRules(site: string, ids: string[]) {
   await sql().begin(async (tx) => {
-    for (const [i, id] of ids.entries()) await tx`update segmentation_rules set priority = ${i + 1} where id = ${id}`;
+    for (const [i, id] of ids.entries())
+      await tx`update segmentation_rules set priority = ${i + 1} where site_id = ${site} and id = ${id}`;
   });
 }
 
-/** Replaces every rule (import of the local rules). */
-export async function replaceRules(rules: Record<string, unknown>[]) {
+/** Replaces every rule of the site (import of the local rules). */
+export async function replaceRules(site: string, rules: Record<string, unknown>[]) {
   rules.forEach(checkRule);
   await sql().begin(async (tx) => {
-    await tx`delete from segmentation_rules`;
+    await tx`delete from segmentation_rules where site_id = ${site}`;
     for (const [i, rule] of rules.entries()) {
       await tx`
-        insert into segmentation_rules (id, priority, data)
-        values (${String(rule.id)}, ${i + 1}, ${tx.json(dataOf(rule) as never)})`;
+        insert into segmentation_rules (site_id, id, priority, data)
+        values (${site}, ${String(rule.id)}, ${i + 1}, ${tx.json(dataOf(rule) as never)})`;
     }
   });
 }

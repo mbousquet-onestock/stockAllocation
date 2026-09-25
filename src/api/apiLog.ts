@@ -1,4 +1,5 @@
 import { getDbConfig } from './dbConfig';
+import { siteHeader } from './site';
 
 /**
  * Journal of the API calls made by the application (OneStock through the proxy, Vercel database),
@@ -132,7 +133,7 @@ async function historyCall<T>(path: string, init: RequestInit = {}): Promise<T> 
   const config = getDbConfig();
   const res = await fetch(`${config.apiUrl.replace(/\/+$/, '')}/api-calls${path}`, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...(config.apiKey ? { 'x-api-key': config.apiKey } : {}) },
+    headers: { 'Content-Type': 'application/json', ...(config.apiKey ? { 'x-api-key': config.apiKey } : {}), ...siteHeader() },
   });
   const payload = await res.json().catch(() => undefined);
   if (!res.ok) throw new Error((payload as { error?: string })?.error ?? `HTTP ${res.status}`);

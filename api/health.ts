@@ -1,13 +1,16 @@
-import { connectionString, route, schemaReady, sql } from './_lib/db.js';
+import { connectionString, ensureSchemaOnce, route, schemaReady, siteOf, sql } from './_lib/db.js';
 
 /** Connection check used by Settings → Database. */
 export default route({
-  GET: async () => {
+  GET: async (req) => {
     const url = connectionString();
     if (!url) return { ok: false, configured: false, error: 'DATABASE_URL is not configured on the server' };
     const [info] = await sql()<{ database: string; version: string }[]>`select current_database() as database, version() as version`;
     const ready = await schemaReady();
-    const ruleCount = ready ? Number((await sql()`select count(*)::int as n from segmentation_rules`)[0].n) : 0;
+    // Existing tables: bring them to the current schema (site_id…) before counting.
+    if (ready) await ensureSchemaOnce();
+    const site = siteOf(req);
+    const ruleCount = ready ? Number((await sql()`select count(*)::int as n from segmentation_rules where site_id = ${site}`)[0].n) : 0;
     let host = '';
     try {
       host = new URL(url).hostname;
@@ -23,6 +26,8 @@ export default route({
       schemaReady: ready,
       ruleCount,
       apiKeyRequired: Boolean(process.env.API_KEY),
+      siteId: site,
     };
   },
-});
+  // Must answer even when the schema is missing or DATABASE_URL is not set.
+}, { schema: false });

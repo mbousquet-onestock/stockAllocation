@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { getDbConfig } from '../api/dbConfig';
 import {
   callOnestock,
@@ -8,6 +8,8 @@ import {
   parseEndpoints,
   parseItem,
   fetchItemsPage,
+  loadSharedOnestockSettings,
+  publishOnestockSettings,
   fetchStock,
   setOnestockConfig,
   type Category,
@@ -41,7 +43,9 @@ const COMMON_LANGUAGES = ['fr', 'en', 'it', 'es', 'de', 'nl', 'pt'];
 export function OnestockSettings() {
   const notify = useToast();
   const { bump } = useDataVersion();
-  const saved = getOnestockConfig();
+  const [saved, setSaved] = useState(getOnestockConfig());
+  const [shared, setShared] = useState<{ loaded: boolean; updatedAt?: string | null; error?: string }>();
+  const sharing = getDbConfig().mode === 'remote';
   const [config, setConfig] = useState<OnestockConfig>(saved);
   const [showToken, setShowToken] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -124,10 +128,45 @@ export function OnestockSettings() {
     }
   };
 
-  const save = () => {
+  // Options shared by the site in the database: loaded when the page opens.
+  useEffect(() => {
+    if (!sharing) return;
+    loadSharedOnestockSettings()
+      .then((r) => {
+        setShared(r);
+        if (r.loaded) {
+          setSaved(getOnestockConfig());
+          setConfig(getOnestockConfig());
+        }
+      })
+      .catch((e: Error) => setShared({ loaded: false, error: e.message }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const save = async () => {
+    const siteChanged = config.siteId.trim() !== saved.siteId.trim();
     setOnestockConfig(config);
+    setSaved(config);
+    try {
+      if (siteChanged) {
+        // Another site: take its shared options if it has some, else publish these ones.
+        const r = await loadSharedOnestockSettings();
+        if (r.loaded) {
+          setConfig(getOnestockConfig());
+          setSaved(getOnestockConfig());
+          setShared(r);
+          notify(`Settings of site ${config.siteId.trim()} loaded from the database`, 'info');
+          bump();
+          return;
+        }
+      }
+      const published = await publishOnestockSettings(config);
+      if (published) setShared({ loaded: true, updatedAt: new Date().toISOString() });
+      notify(published ? `OneStock settings saved and shared with site ${config.siteId.trim()}` : 'OneStock API settings saved');
+    } catch (e) {
+      notify(`Saved on this computer only — database: ${(e as Error).message}`, 'error');
+    }
     bump();
-    notify('OneStock API settings saved');
   };
 
   const proxy = getDbConfig();
@@ -142,6 +181,22 @@ export function OnestockSettings() {
             <strong>items</strong> (<code>{'{{url}}'}/v3/items</code>) and the <strong>stock</strong> (read: <code>{'{{url}}'}/stock_export</code>, write: <code>PATCH {'{{url}}'}/stock_import</code>) and the <strong>stock locations</strong> (<code>{'{{url}}'}/endpoints</code>) of the segmentation rules, with <code>site_id</code> and{' '}
             <code>token</code>. The browser cannot call the API
             directly: the calls go through the proxy of the application (<code>{proxy.apiUrl || '/api'}/onestock</code>).
+          </p>
+          <p className={`small ${shared?.error ? 'text-error' : 'muted'}`}>
+            {sharing ? (
+              shared?.error ? (
+                <>Shared settings unavailable: {shared.error}</>
+              ) : (
+                <>
+                  <strong>Shared by site:</strong> the options below are stored in the database for the site{' '}
+                  <code>{saved.siteId || '(no site id)'}</code>
+                  {shared?.updatedAt ? ` (updated ${new Date(shared.updatedAt).toLocaleString('fr-FR')})` : ''}, so that every computer
+                  uses the same ones. The <strong>site ID</strong> and the <strong>token</strong> stay on this computer.
+                </>
+              )
+            ) : (
+              <>These settings are stored in this browser only. Use the Vercel database (Settings → Database) to share them per site.</>
+            )}
           </p>
         </div>
         <button type="button" className="btn btn--primary" disabled={!dirty} onClick={save}>

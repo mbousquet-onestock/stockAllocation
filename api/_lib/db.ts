@@ -24,15 +24,27 @@ export function sql(): postgres.Sql {
 export async function ensureSchema() {
   await sql()`
     create table if not exists segmentation_rules (
-      id text primary key,
+      site_id text not null default '',
+      id text not null,
       priority integer not null,
       data jsonb not null,
-      updated_at timestamptz not null default now()
+      updated_at timestamptz not null default now(),
+      primary key (site_id, id)
     )`;
-  await sql()`create index if not exists segmentation_rules_priority_idx on segmentation_rules (priority)`;
+  // Tables created before the site scoping: add site_id and make the key (site_id, id).
+  await sql()`alter table segmentation_rules add column if not exists site_id text not null default ''`;
+  await sql().unsafe(`
+    do $$ begin
+      if exists (select 1 from pg_constraint where conname = 'segmentation_rules_pkey' and array_length(conkey, 1) = 1) then
+        alter table segmentation_rules drop constraint segmentation_rules_pkey;
+        alter table segmentation_rules add primary key (site_id, id);
+      end if;
+    end $$`);
+  await sql()`create index if not exists segmentation_rules_priority_idx on segmentation_rules (site_id, priority)`;
   await sql()`
     create table if not exists api_calls (
       id bigserial primary key,
+      site_id text not null default '',
       at timestamptz not null,
       target text not null,
       method text not null,
@@ -46,7 +58,22 @@ export async function ensureSchema() {
       response jsonb,
       truncated boolean not null default false
     )`;
-  await sql()`create index if not exists api_calls_at_idx on api_calls (at desc)`;
+  await sql()`alter table api_calls add column if not exists site_id text not null default ''`;
+  await sql()`create index if not exists api_calls_site_at_idx on api_calls (site_id, at desc)`;
+  await sql()`
+    create table if not exists site_settings (
+      site_id text primary key,
+      data jsonb not null,
+      updated_at timestamptz not null default now()
+    )`;
+}
+
+let schemaChecked = false;
+/** Schema created / migrated once per function instance. */
+export async function ensureSchemaOnce() {
+  if (schemaChecked) return;
+  await ensureSchema();
+  schemaChecked = true;
 }
 
 export async function schemaReady(): Promise<boolean> {
@@ -91,11 +118,12 @@ function checkApiKey(req: ApiRequest) {
 type Handler = (req: ApiRequest, res: ApiResponse) => Promise<unknown>;
 
 /** Wraps a handler: API key check, method routing, JSON errors. */
-export function route(handlers: Partial<Record<'GET' | 'POST' | 'PUT' | 'DELETE', Handler>>) {
+export function route(handlers: Partial<Record<'GET' | 'POST' | 'PUT' | 'DELETE', Handler>>, options: { schema?: boolean } = {}) {
   return async (req: ApiRequest, res: ApiResponse) => {
     res.setHeader('Cache-Control', 'no-store');
     try {
       checkApiKey(req);
+      if (options.schema !== false) await ensureSchemaOnce();
       const handler = handlers[(req.method ?? 'GET') as keyof typeof handlers];
       if (!handler) throw new HttpError(405, `Method ${req.method} not allowed`);
       const result = await handler(req, res);
@@ -107,6 +135,12 @@ export function route(handlers: Partial<Record<'GET' | 'POST' | 'PUT' | 'DELETE'
       res.status(status).json({ error: message });
     }
   };
+}
+
+/** Site the data belongs to (OneStock site_id), sent by the application in the x-site-id header. */
+export function siteOf(req: ApiRequest): string {
+  const v = req.headers['x-site-id'];
+  return (Array.isArray(v) ? v[0] : v ?? '').trim();
 }
 
 export const param = (req: ApiRequest, name: string): string => {
