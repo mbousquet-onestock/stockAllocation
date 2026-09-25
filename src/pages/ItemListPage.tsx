@@ -134,6 +134,7 @@ export function ItemListPage() {
             </button>
           </span>
         )}
+        {!sort && <span className="muted small">Items with stock first</span>}
         <span className="grow" />
         {pagination}
       </div>

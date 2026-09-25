@@ -51,6 +51,7 @@ export function setOnestockConfig(config: OnestockConfig) {
   itemIndex = undefined;
   itemDetails.clear();
   stockCache.clear();
+  stockTotals = undefined;
 }
 
 export const isOnestockConfigured = (c = getOnestockConfig()) => !!(c.url.trim() && c.siteId.trim() && c.token.trim());
@@ -359,4 +360,34 @@ export async function fetchStock(itemIds: string[], config = getOnestockConfig()
     byItem.forEach((records, id) => stockCache.set(id, { at: now, records }));
   }
   return itemIds.flatMap((id) => stockCache.get(id)?.records ?? []);
+}
+
+let stockTotals: { at: number; totals: Map<string, number>; key: string } | undefined;
+
+/**
+ * Total stock by item, for ordering the item list (items with stock first).
+ * One stock_export call without item_filter (the whole export of {{stock_request}}); if the API refuses it,
+ * falls back to item_filter batches over the given ids. Results also fill the per-item stock cache.
+ */
+export async function fetchStockTotals(itemIds: string[], config = getOnestockConfig()): Promise<Map<string, number>> {
+  const key = [config.url, config.siteId, config.stockRequest].join('|');
+  if (stockTotals && stockTotals.key === key && Date.now() - stockTotals.at < STOCK_CACHE_MS) return stockTotals.totals;
+  let records: StockRecord[];
+  try {
+    const data = await callOnestock<{ stocks?: StockRecord[] }>('/stock_export', config, {
+      ...(config.stockRequest.trim() ? { request_name: config.stockRequest.trim() } : {}),
+    });
+    if (!Array.isArray(data?.stocks)) throw new Error('No stocks in the answer');
+    records = data.stocks.map((r) => ({ ...r, quantity: Number(r.quantity) || 0 }));
+    const now = Date.now();
+    const byItem = new Map<string, StockRecord[]>(itemIds.map((id) => [id, []]));
+    records.forEach((r) => r.item_id && (byItem.get(r.item_id) ?? byItem.set(r.item_id, []).get(r.item_id)!).push(r));
+    byItem.forEach((list, id) => stockCache.set(id, { at: now, records: list }));
+  } catch {
+    records = await fetchStock(itemIds, config);
+  }
+  const totals = new Map<string, number>();
+  records.forEach((r) => totals.set(r.item_id, (totals.get(r.item_id) ?? 0) + r.quantity));
+  stockTotals = { at: Date.now(), totals, key };
+  return totals;
 }

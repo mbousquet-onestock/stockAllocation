@@ -21,6 +21,7 @@ import {
   cachedItem,
   fetchCategories,
   fetchStock,
+  fetchStockTotals,
   fetchEndpoints,
   fetchItemDetails,
   fetchItemIndex,
@@ -489,7 +490,13 @@ export const mockApi: StockAllocationApi = {
       const rule = rules().find((r) => r.id === query.ruleId);
       list = rule ? list.filter((s) => matchesCriteria(s.item, rule.criteria)) : [];
     }
-    list = sortSummaries(list, query.sort);
+    if (query.sort) list = sortSummaries(list, query.sort);
+    else {
+      // Default order: items with stock first (stable, the catalog order is kept inside each group).
+      const totals = useOnestockStock() ? await fetchStockTotals(list.map((x) => x.item.id)) : undefined;
+      const hasStock = (x: ItemSummary) => ((totals ? totals.get(x.item.id) : x.totalStock) ?? 0) > 0;
+      list = [...list].sort((a, b) => Number(hasStock(b)) - Number(hasStock(a)));
+    }
     const start = query.page * query.pageSize;
     const page = list.slice(start, start + query.pageSize);
     if (useOnestockItems() || useOnestockStock()) {

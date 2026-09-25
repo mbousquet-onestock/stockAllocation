@@ -31,7 +31,7 @@ npm run build      # typecheck + build de production
   par SKU liste toutes les règles qui s'appliquent à l'article et met en évidence celles utilisées par son stock.
   Tableau : priorité (réordonnable), critères, type de stock + purchase orders, entrepôts, répartition en %, période,
   articles concernés, activation, duplication, suppression. Actions : nouvelle règle, **Stock import**, **Apply rules**.
-- **Item allocation** (`/items`) : recherche avec complétion (nom, SKU), stock de chaque article par segment (colonnes groupées par type principal), alertes
+- **Item allocation** (`/items`) : articles avec du stock en premier (ordre par défaut), recherche avec complétion (nom, SKU), stock de chaque article par segment (colonnes groupées par type principal), alertes
   de seuil, filtre par règle.
 - **Détail article** (`/items/:id`) : totaux par type de stock, lignes de stock (entrepôt × type × purchase order) avec
   la répartition sur les groupes, la source (règle / manuel / aucune) et la règle du prochain import ; clic sur une
@@ -84,6 +84,8 @@ défaut). Quand l'API est configurée, les valeurs du critère **Category** de l
   quantité du groupe, un enregistrement sur le type principal (`Container`) ce qui reste dessus. Les lignes affichées
   (article × endpoint × type principal × purchase order) sont en lecture seule ; les seuils viennent de la règle qui
   s'appliquerait. Les types non configurés sont signalés et ignorés.
+  Pour mettre les articles avec du stock en premier, un appel `stock_export` sans `item_filter` récupère tout l'export
+  (cache 2 min) ; si l'API le refuse, le stock est demandé par lots d'ids.
 - L'appel passe par le proxy `POST /api/onestock` (fonction Vercel) : le navigateur ne peut pas appeler l'API OneStock
   directement (CORS). Le proxy n'autorise que les chemins listés (`/categories`, `/endpoints`, `/v3/items`, `/stock_export`), ne relaie que `pagination`, `item_ids`,
   `request_name` et `item_filter` en plus de
