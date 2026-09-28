@@ -2,6 +2,16 @@ import type { Item, StockLocation } from '../types';
 import { logApiCall } from './apiLog';
 import { getDbConfig } from './dbConfig';
 import { remoteRules } from './remoteRules';
+import {
+  categoryParentMap,
+  parseCategories as parseCategoryTree,
+  parseItemNode,
+  setCategoryParents,
+  type Category,
+  type ItemNode as SharedItemNode,
+  type StockImportRecord,
+  type StockRecord,
+} from '../../api/_lib/segmentation.js';
 
 /**
  * OneStock API settings (Settings → OneStock API) and calls through the application proxy (/api/onestock).
@@ -117,56 +127,10 @@ export async function callOnestock<T = unknown>(
   return payload?.data as T;
 }
 
-export interface Category {
-  /** Value stored in the rule criteria. */
-  id: string;
-  label: string;
-}
+export type { Category } from '../../api/_lib/segmentation.js';
 
-interface CategoryNode {
-  id?: string | number;
-  display_info?: Record<string, { name?: string } | undefined>;
-  sub_category?: CategoryNode[];
-}
-
-/** Name in the default language, else the first available language, else the id. */
-function nodeLabel(node: CategoryNode, language: string): string {
-  const info = node.display_info ?? {};
-  const name = info[language]?.name || Object.values(info).find((i) => i?.name)?.name;
-  return name || String(node.id);
-}
-
-/**
- * Reads the OneStock category tree: { category: { id: "0", sub_category: [{ id, display_info: { fr: { name } }, sub_category? }] } }.
- * Every node below the root becomes a category; nested ones are labelled "Parent › Child".
- * Plain arrays of strings or of { id, name } objects are accepted too.
- */
-export function parseCategories(data: unknown, language = getOnestockConfig().language): Category[] {
-  const result: Category[] = [];
-  const walk = (nodes: CategoryNode[] | undefined, parents: string[]) =>
-    (nodes ?? []).forEach((node) => {
-      if (node?.id === undefined) return;
-      const label = nodeLabel(node, language);
-      result.push({ id: String(node.id), label: [...parents, label].join(' › ') });
-      walk(node.sub_category, [...parents, label]);
-    });
-
-  const root = (data as { category?: CategoryNode } | null)?.category;
-  if (root && typeof root === 'object') walk(root.sub_category, []);
-  else if (Array.isArray(data))
-    data.forEach((c) => {
-      if (typeof c === 'string' || typeof c === 'number') result.push({ id: String(c), label: String(c) });
-      else if (c && typeof c === 'object') {
-        const o = c as CategoryNode & { name?: string };
-        if (o.id !== undefined) result.push({ id: String(o.id), label: o.name ?? nodeLabel(o, language) });
-        walk(o.sub_category, [o.name ?? nodeLabel(o, language)]);
-      }
-    });
-  else throw new Error('No category tree found in the answer (expected { category: { sub_category: [...] } })');
-
-  const unique = new Map(result.map((c) => [c.id, c]));
-  return [...unique.values()].sort((a, b) => a.label.localeCompare(b.label));
-}
+/** Reads the OneStock category tree (labels in the default language). */
+export const parseCategories = (data: unknown, language = getOnestockConfig().language): Category[] => parseCategoryTree(data, language);
 
 let categoriesCache: { at: number; list: Category[] } | undefined;
 const CACHE_MS = 5 * 60 * 1000;
@@ -176,6 +140,8 @@ export async function fetchCategories(force = false): Promise<Category[]> {
   if (!force && categoriesCache && Date.now() - categoriesCache.at < CACHE_MS) return categoriesCache.list;
   const list = parseCategories(await callOnestock('/categories'));
   categoriesCache = { at: Date.now(), list };
+  // A rule on a category also matches the items of its sub-categories.
+  setCategoryParents(categoryParentMap(list));
   return list;
 }
 
@@ -280,48 +246,15 @@ export function fetchItemIndex(force = false): Promise<string[]> {
 
 export const itemIndexComplete = () => itemIndex?.complete ?? false;
 
-type FeatureValue = string | number | boolean | null;
-interface ItemNode {
-  id?: string;
-  features?: Record<string, Record<string, FeatureValue[] | FeatureValue> | undefined>;
-}
+type ItemNode = SharedItemNode;
 
-const firstValue = (v: FeatureValue[] | FeatureValue | undefined): string => {
-  const x = Array.isArray(v) ? v[0] : v;
-  return x === null || x === undefined ? '' : String(x).trim();
-};
-
-/** Maps a v3/items entry to an Item, features read in the default language (fallback: first language). */
-export function parseItem(node: ItemNode, language = getOnestockConfig().language): Item {
-  const id = String(node.id);
-  const byLang = node.features ?? {};
-  const f = byLang[language] ?? Object.values(byLang).find(Boolean) ?? {};
-  const features = Object.fromEntries(
-    Object.entries(f)
-      .map(([k, v]) => [k, Array.isArray(v) ? v.map((x) => String(x ?? '').trim()).filter(Boolean).join(', ') : firstValue(v)] as const)
-      .filter(([, v]) => v !== ''),
-  );
-  const get = (...keys: string[]) => keys.map((k) => firstValue(f[k])).find(Boolean) ?? '';
-  return {
-    id,
-    sku: id,
-    name: get('name', 'title', 'designation') || id,
-    category: get('category', 'categories'),
-    brand: get('brand', 'marque'),
-    season: get('season', 'season_code'),
-    price: Number(get('price')) || 0,
-    specs: [get('designation', 'size')].filter(Boolean),
-    imageUrl: get('image', 'big_images') || undefined,
-    description: get('description') || undefined,
-    features,
-    source: 'onestock',
-  };
-}
+/** Maps a v3/items entry to an Item (category_ids, features in the default language). */
+export const parseItem = (node: ItemNode, language = getOnestockConfig().language): Item => parseItemNode(node, language);
 
 const itemDetails = new Map<string, Item>();
 const DETAIL_BATCH = 25;
 const DETAIL_CONCURRENCY = 4;
-const DETAILS_KEY = 'stock-allocation:onestock-items';
+const DETAILS_KEY = 'stock-allocation:onestock-items:v2';
 const DETAILS_CACHE_MS = 60 * 60 * 1000;
 
 /** Compact details kept in the browser (1 hour) so that the whole catalog is not reloaded at each visit. */
@@ -400,16 +333,7 @@ export const useOnestockItems = (c = getOnestockConfig()) => c.useForItems && is
 // ---------------------------------------------------------------------------
 
 /** One record of stock_export: quantity of an item, in an endpoint, on a stock type (segment). */
-export interface StockRecord {
-  item_id: string;
-  endpoint_id: string;
-  quantity: number;
-  /** Stock type code, main type (on_hand, Container…) or group (on_hand_A, Container_B…); absent = on_hand. */
-  type?: string;
-  eta_start?: number;
-  eta_end?: number;
-  purchase_order_number?: string;
-}
+export type { StockRecord, StockImportRecord } from '../../api/_lib/segmentation.js';
 
 const STOCK_BATCH = 50;
 const STOCK_CACHE_MS = 2 * 60 * 1000;
@@ -493,17 +417,6 @@ async function exportRecords(itemIds: string[], config: OnestockConfig): Promise
 }
 
 /** One line of stock_import: stock variation of an item, in an endpoint, on a stock type (segment). */
-export interface StockImportRecord {
-  item_id: string;
-  endpoint_id: string;
-  quantity: number;
-  /** Omitted: default stock type (on_hand). */
-  type?: string;
-  purchase_order_number?: string;
-  eta_start?: number;
-  eta_end?: number;
-}
-
 const IMPORT_BATCH = 500;
 
 /** PATCH stock_import by batches, then forgets the cached stock of these items. */

@@ -9,7 +9,10 @@ export interface Item {
   price: number;
   /** Free specs displayed under the name (e.g. capacity). */
   specs: string[];
+  /** Main category (first of `categories`). */
   category: string;
+  /** All category ids of the item (OneStock category_ids). A rule on a category also matches its sub-categories. */
+  categories?: string[];
   brand: string;
   season: string;
   imageUrl?: string;

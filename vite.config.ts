@@ -21,8 +21,10 @@ function vercelApiDev(): Plugin {
     name: 'vercel-api-dev',
     configureServer(server) {
       Object.assign(process.env, loadEnv(server.config.mode, process.cwd(), ''));
-      server.middlewares.use('/api', async (req, res) => {
+      server.middlewares.use('/api', async (req, res, next) => {
         const url = new URL(req.originalUrl ?? req.url ?? '/', 'http://localhost');
+        // Source modules shared with the application (api/_lib/*.ts) are served by Vite, not run.
+        if (/\.[cm]?[jt]s$/.test(url.pathname) || url.pathname.startsWith('/api/_')) return next();
         const target = resolve(url.pathname);
         const send = (status: number, payload: unknown) => {
           res.statusCode = status;

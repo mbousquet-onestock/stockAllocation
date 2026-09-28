@@ -11,4 +11,5 @@ export const ATTRIBUTES: Array<{ key: AttributeKey; label: string }> = [
 export const attributeLabel = (key: AttributeKey): string =>
   ATTRIBUTES.find((a) => a.key === key)?.label ?? key;
 
+/** Main value of a characteristic (display, value lists). Rules compare all values: see itemValues. */
 export const itemAttribute = (item: Item, key: AttributeKey): string => item[key];

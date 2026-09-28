@@ -1,4 +1,4 @@
-import type { Item, ItemSummary, SegmentationRule, StockLine, StockLocation, StockLineRow } from '../types';
+import type { Item, ItemSummary, StockLine, StockLocation, StockLineRow } from '../types';
 import type { StockTypeTree } from './stockTypes';
 
 export const splitSum = (l: StockLine): number =>
@@ -47,32 +47,8 @@ export function summarize(item: Item, lines: StockLine[]): ItemSummary {
 export const familyTotal = (totals: Record<string, number>, tree: StockTypeTree, mainId: string) =>
   tree.family(mainId).reduce((s, t) => s + (totals[t.id] ?? 0), 0);
 
-/**
- * Splits a quantity onto groups by percentage: floor(quantity * pct / 100) per group,
- * the rounding rest stays on the main stock type.
- */
-export function computeSplit(quantity: number, shares: Record<string, number>, groupIds: string[]): Record<string, number> {
-  let left = quantity;
-  return Object.fromEntries(
-    groupIds.map((id) => {
-      const q = Math.min(left, Math.floor((quantity * Math.max(0, shares[id] ?? 0)) / 100));
-      left -= q;
-      return [id, q];
-    }),
-  );
-}
-
-/** Splits a stock line with a rule. */
-export function applyRuleToLine(line: StockLine, rule: SegmentationRule, tree: StockTypeTree): StockLine {
-  const groupIds = tree.groupsOf(line.stockTypeId).map((g) => g.id);
-  const quantities = computeSplit(line.quantity, rule.shares, groupIds);
-  return {
-    ...line,
-    period: rule.period,
-    split: Object.fromEntries(groupIds.map((id) => [id, { quantity: quantities[id], threshold: rule.thresholds[id] ?? null }])),
-    source: { type: 'rule', ruleId: rule.id },
-  };
-}
+// Percentage split, shared with the serverless functions (api/stock-import).
+export { applyRuleToLine, computeSplit } from '../../api/_lib/segmentation.js';
 
 /** No rule: the whole quantity stays on the main stock type. */
 export function unsplit(line: StockLine): StockLine {

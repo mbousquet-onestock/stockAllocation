@@ -94,7 +94,18 @@ let remoteCache: SegmentationRule[] = [];
 /** Current rules: always call syncRules() first in remote mode. */
 const rules = (): SegmentationRule[] => (remote() ? remoteCache : db.rules);
 async function syncRules() {
-  if (remote()) remoteCache = await remoteRules.list();
+  await Promise.all([remote() ? remoteRules.list().then((r) => (remoteCache = r)) : undefined, loadCategoryTree()]);
+}
+
+/** OneStock category tree (cached 5 min): a rule on a category also matches the items of its sub-categories. */
+async function loadCategoryTree() {
+  const c = getOnestockConfig();
+  if (!c.useForCategories || !isOnestockConfigured(c)) return;
+  try {
+    await fetchCategories();
+  } catch (e) {
+    console.warn('Category tree not loaded:', (e as Error).message);
+  }
 }
 
 // ---------------------------------------------------------------------------
