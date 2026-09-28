@@ -12,8 +12,10 @@ export interface OnestockConfig {
   url: string;
   /** {{site_id}} */
   siteId: string;
-  /** {{token}} */
+  /** {{token}} (may stay empty on this computer when it is stored in the database for the site). */
   token: string;
+  /** The token is stored in the database for the site: the proxy reads it there when none is given. */
+  tokenInDatabase: boolean;
   method: 'GET' | 'POST';
   /** Default language of the labels (display_info), e.g. "fr". */
   language: string;
@@ -30,7 +32,7 @@ export interface OnestockConfig {
 }
 
 const KEY = 'stock-allocation:onestock-config';
-export const DEFAULT_ONESTOCK_CONFIG: OnestockConfig = { url: '', siteId: '', token: '', method: 'GET', language: 'fr', useForCategories: true, useForLocations: true, useForItems: true, stockRequest: '', useForStock: true };
+export const DEFAULT_ONESTOCK_CONFIG: OnestockConfig = { url: '', siteId: '', token: '', tokenInDatabase: false, method: 'GET', language: 'fr', useForCategories: true, useForLocations: true, useForItems: true, stockRequest: '', useForStock: true };
 
 export function getOnestockConfig(): OnestockConfig {
   try {
@@ -61,7 +63,8 @@ export function setOnestockConfig(config: OnestockConfig) {
   stockTotals = undefined;
 }
 
-export const isOnestockConfigured = (c = getOnestockConfig()) => !!(c.url.trim() && c.siteId.trim() && c.token.trim());
+export const isOnestockConfigured = (c = getOnestockConfig()) =>
+  !!(c.url.trim() && c.siteId.trim() && (c.token.trim() || (c.tokenInDatabase && getDbConfig().mode === 'remote')));
 
 /** Calls an OneStock endpoint through the proxy function. */
 export async function callOnestock<T = unknown>(
@@ -529,9 +532,12 @@ export function invalidateStock(itemIds: string[]) {
 // Settings shared by the users of a site (database, per site_id)
 // ---------------------------------------------------------------------------
 
-/** Options shared through the database: everything but the site_id and the token (kept on each computer). */
+/**
+ * Options shared through the database: everything but the site_id (the key of the site) and the token,
+ * which is saved apart (secrets) when `tokenInDatabase` is set and never read back by the browser.
+ */
 export function sharedOnestockSettings(config: OnestockConfig): Record<string, unknown> {
-  const { siteId: _site, token: _token, ...shared } = config;
+  const { siteId: _site, token: _token, tokenInDatabase: _stored, ...shared } = config;
   return shared;
 }
 
@@ -540,7 +546,10 @@ const sharingEnabled = (config: OnestockConfig) => getDbConfig().mode === 'remot
 /** Saves the shared OneStock options of the site in the database (when the Vercel database is used). */
 export async function publishOnestockSettings(config = getOnestockConfig()): Promise<boolean> {
   if (!sharingEnabled(config)) return false;
-  await remoteRules.saveSiteSettings({ onestock: sharedOnestockSettings(config) });
+  const token = config.token.trim();
+  // Stored token: replaced when one is typed here, kept otherwise. Not stored: removed from the database.
+  const secrets = config.tokenInDatabase ? (token ? { onestockToken: token } : undefined) : { onestockToken: '' };
+  await remoteRules.saveSiteSettings({ onestock: sharedOnestockSettings(config), ...(secrets ? { secrets } : {}) });
   return true;
 }
 
@@ -548,10 +557,15 @@ export async function publishOnestockSettings(config = getOnestockConfig()): Pro
 export async function loadSharedOnestockSettings(): Promise<{ loaded: boolean; updatedAt?: string | null }> {
   const current = getOnestockConfig();
   if (!sharingEnabled(current)) return { loaded: false };
-  const { settings, updatedAt } = await remoteRules.getSiteSettings();
-  const shared = settings?.onestock;
-  if (!shared) return { loaded: false, updatedAt };
-  const next = { ...current, ...(shared as Partial<OnestockConfig>), siteId: current.siteId, token: current.token };
+  const { settings, updatedAt, hasToken } = await remoteRules.getSiteSettings();
+  return { loaded: applySharedOnestockSettings(settings?.onestock, hasToken), updatedAt };
+}
+
+/** Applies the OneStock options read from the database (site settings) to this computer's settings. */
+export function applySharedOnestockSettings(shared: Record<string, unknown> | undefined, hasToken: boolean): boolean {
+  if (!shared && !hasToken) return false;
+  const current = getOnestockConfig();
+  const next = { ...current, ...((shared ?? {}) as Partial<OnestockConfig>), siteId: current.siteId, token: current.token, tokenInDatabase: hasToken };
   if (JSON.stringify(next) !== JSON.stringify(current)) setOnestockConfig(next);
-  return { loaded: true, updatedAt };
+  return true;
 }

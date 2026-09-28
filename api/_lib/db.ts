@@ -71,6 +71,8 @@ export async function ensureSchema() {
       data jsonb not null,
       updated_at timestamptz not null default now()
     )`;
+  // Secrets of the site (OneStock token): never returned to the browser, read by the OneStock proxy only.
+  await sql()`alter table site_settings add column if not exists secrets jsonb not null default '{}'::jsonb`;
 }
 
 let schemaChecked = false;
@@ -185,4 +187,11 @@ export function body<T>(req: ApiRequest): T {
   const b = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
   if (!b || typeof b !== 'object') throw new HttpError(400, 'A JSON body is required');
   return b as T;
+}
+
+/** OneStock token stored for the site (Settings → OneStock API), or undefined. */
+export async function siteToken(site: string): Promise<string | undefined> {
+  const [row] = await sql()<{ token: string | null }[]>`
+    select secrets->>'onestockToken' as token from site_settings where site_id = ${site}`;
+  return row?.token || undefined;
 }

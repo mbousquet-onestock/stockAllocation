@@ -4,6 +4,7 @@ import {
   callOnestock,
   DEFAULT_ONESTOCK_CONFIG,
   getOnestockConfig,
+  isOnestockConfigured,
   parseCategories,
   parseEndpoints,
   parseItem,
@@ -56,7 +57,7 @@ export function OnestockSettings() {
   const tree = useStockTypes();
   const [endpoints, setEndpoints] = useState<{ locations: StockLocation[] } | { error: string }>();
   const dirty = JSON.stringify(config) !== JSON.stringify(saved);
-  const complete = !!(config.url.trim() && config.siteId.trim() && config.token.trim());
+  const complete = isOnestockConfigured(config);
 
   const set = (patch: Partial<OnestockConfig>) => {
     setConfig((c) => ({ ...c, ...patch }));
@@ -191,7 +192,7 @@ export function OnestockSettings() {
                   <strong>Shared by site:</strong> the options below are stored in the database for the site{' '}
                   <code>{saved.siteId || '(no site id)'}</code>
                   {shared?.updatedAt ? ` (updated ${new Date(shared.updatedAt).toLocaleString('fr-FR')})` : ''}, so that every computer
-                  uses the same ones. The <strong>site ID</strong> and the <strong>token</strong> stay on this computer.
+                  uses the same ones. The <strong>site ID</strong> stays on this computer; the <strong>token</strong> too, unless it is stored in the database below.
                 </>
               )
             ) : (
@@ -221,37 +222,57 @@ export function OnestockSettings() {
               value={config.token}
               onChange={(e) => set({ token: e.target.value })}
               autoComplete="off"
+              placeholder={saved.tokenInDatabase && sharing ? 'Stored in the database — type a new one to replace it' : ''}
             />
             <button type="button" className="input-group__addon input-group__btn" onClick={() => setShowToken((v) => !v)}>
               {showToken ? 'Hide' : 'Show'}
             </button>
           </span>
         </label>
-        <div className="form-row">
-          <label className="field">
-            <span className="field__label">Default language of the labels</span>
-            <input
-              className="input"
-              list="onestock-languages"
-              value={config.language}
-              onChange={(e) => set({ language: e.target.value.trim().toLowerCase() })}
-              placeholder={DEFAULT_ONESTOCK_CONFIG.language}
+        {sharing && (
+          <div className="field">
+            <Checkbox
+              checked={config.tokenInDatabase}
+              onChange={(tokenInDatabase) => set({ tokenInDatabase })}
+              label={`Store the token in the database for site ${config.siteId.trim() || '(no site id)'}: the other computers only need the site ID`}
             />
-            <datalist id="onestock-languages">
-              {[...new Set([...(result && 'languages' in result ? result.languages : []), ...COMMON_LANGUAGES])].map((l) => (
-                <option key={l} value={l} />
-              ))}
-            </datalist>
-            <span className="muted small">When a category has no name in this language, the first available one is used.</span>
-          </label>
-          <label className="field">
-            <span className="field__label">HTTP method</span>
-            <select className="select" value={config.method} onChange={(e) => set({ method: e.target.value as OnestockConfig['method'] })}>
-              <option value="GET">GET</option>
-              <option value="POST">POST</option>
-            </select>
-          </label>
-        </div>
+            <span className="muted small">
+              The token is saved apart and never sent back to the browsers: the proxy reads it in the database to call OneStock. Unchecking
+              it removes it from the database.
+            </span>
+          </div>
+        )}
+        <label className="field">
+          <span className="field__label">Default language of the labels</span>
+          <input
+            className="input"
+            list="onestock-languages"
+            value={config.language}
+            onChange={(e) => set({ language: e.target.value.trim().toLowerCase() })}
+            placeholder={DEFAULT_ONESTOCK_CONFIG.language}
+          />
+          <datalist id="onestock-languages">
+            {[...new Set([...(result && 'languages' in result ? result.languages : []), ...COMMON_LANGUAGES])].map((l) => (
+              <option key={l} value={l} />
+            ))}
+          </datalist>
+          <span className="muted small">When a category has no name in this language, the first available one is used.</span>
+        </label>
+        <label className="field">
+          <span className="field__label">Stock request — {'{{stock_request}}'} (request_name of stock_export)</span>
+          <input className="input" value={config.stockRequest} onChange={(e) => set({ stockRequest: e.target.value })} placeholder="e.g. stock_segments" />
+        </label>
+        <label className="field">
+          <span className="field__label">HTTP method of the read calls</span>
+          <select className="select" value={config.method} onChange={(e) => set({ method: e.target.value as OnestockConfig['method'] })}>
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+          </select>
+          <span className="muted small">
+            Method used for categories, endpoints, v3/items and stock_export, which send <code>site_id</code> / <code>token</code> in a JSON
+            body. GET (OneStock default) unless your API only accepts POST. The stock updates always use <code>PATCH stock_import</code>.
+          </span>
+        </label>
         <Checkbox
           checked={config.useForCategories}
           onChange={(useForCategories) => set({ useForCategories })}
@@ -272,16 +293,10 @@ export function OnestockSettings() {
           onChange={(useForStock) => set({ useForStock })}
           label="Read the item stock from OneStock (stock_export) in the allocation pages"
         />
-        <div className="form-row">
-          <label className="field">
-            <span className="field__label">Stock request — {'{{stock_request}}'} (request_name of stock_export)</span>
-            <input className="input" value={config.stockRequest} onChange={(e) => set({ stockRequest: e.target.value })} placeholder="e.g. stock_segments" />
-          </label>
-          <label className="field">
-            <span className="field__label">Item ids to test (optional)</span>
-            <input className="input" value={stockIds} onChange={(e) => setStockIds(e.target.value)} placeholder="first items" />
-          </label>
-        </div>
+        <label className="field">
+          <span className="field__label">Item ids to test the stock (optional)</span>
+          <input className="input" value={stockIds} onChange={(e) => setStockIds(e.target.value)} placeholder="first items" />
+        </label>
 
         <div className="db-actions">
           <button type="button" className="btn btn--secondary" disabled={busy || !complete} onClick={test}>
@@ -404,7 +419,10 @@ export function OnestockSettings() {
           <li>
             The proxy uses the API URL and API key of <em>Settings → Database</em>. It only relays the allowed OneStock paths.
           </li>
-          <li>The token is kept in this browser; each user enters it once.</li>
+          <li>
+            The token is kept in this browser, or stored in the database for the site (then each computer only enters the site ID). A
+            token typed here is always used first.
+          </li>
         </ul>
       </div>
     </div>

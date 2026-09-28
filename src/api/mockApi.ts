@@ -33,6 +33,7 @@ import {
   minimalItem,
   useOnestockItems,
   useOnestockStock,
+  applySharedOnestockSettings,
 } from './onestock';
 import { lineDeltaRecords, recordsToLines } from '../utils/onestockStock';
 import { remoteRules } from './remoteRules';
@@ -106,7 +107,9 @@ const siteShared = () => remote() && !!currentSiteId();
 async function syncStockTypes() {
   if (!siteShared()) return;
   try {
-    const { settings } = await remoteRules.getSiteSettings();
+    const { settings, hasToken } = await remoteRules.getSiteSettings();
+    // Same answer: the OneStock options of the site (and whether its token is stored) are applied too.
+    applySharedOnestockSettings(settings?.onestock, hasToken);
     if (settings?.stockTypes?.length) {
       db.stockTypes = settings.stockTypes;
       persist();

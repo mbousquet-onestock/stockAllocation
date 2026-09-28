@@ -6,6 +6,8 @@ import { siteHeader } from './site';
 export interface SiteSettings {
   stockTypes?: StockType[];
   onestock?: Record<string, unknown>;
+  /** Write only: secrets of the site ('' removes). Never sent back, see `hasToken`. */
+  secrets?: { onestockToken?: string };
 }
 
 export interface DbHealth {
@@ -80,6 +82,6 @@ export const remoteRules = {
   reorder: (order: string[]) => call<SegmentationRule[]>('/rules', json('PUT', { order })),
   replaceAll: (rules: SegmentationRule[], config?: DbConfig) => call<SegmentationRule[]>('/rules', json('PUT', { rules }), config),
   /** Settings shared by the users of the site (stock types, OneStock options — no secrets). */
-  getSiteSettings: () => call<{ siteId: string; settings: SiteSettings | null; updatedAt: string | null }>('/settings'),
+  getSiteSettings: () => call<{ siteId: string; settings: SiteSettings | null; hasToken: boolean; updatedAt: string | null }>('/settings'),
   saveSiteSettings: (patch: SiteSettings) => call<{ siteId: string; settings: SiteSettings }>('/settings', json('PUT', patch)),
 };

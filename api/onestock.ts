@@ -1,6 +1,6 @@
 import http from 'node:http';
 import https from 'node:https';
-import { body, HttpError, route } from './_lib/db.js';
+import { body, connectionString, ensureSchemaOnce, HttpError, route, siteToken } from './_lib/db.js';
 
 /**
  * Proxy to the OneStock API: the browser cannot call it directly (CORS), so it sends
@@ -20,7 +20,7 @@ interface ProxyBody {
   path: string;
   method?: 'GET' | 'POST' | 'PATCH';
   site_id: string;
-  token: string;
+  token?: string;
   /** Extra body fields (pagination, item_ids…). */
   params?: Record<string, unknown>;
 }
@@ -74,7 +74,15 @@ function call(url: URL, method: string, payload: unknown): Promise<{ status: num
 export default route({
   POST: async (req) => {
     const b = body<ProxyBody>(req);
-    if (!b.url || !b.site_id || !b.token) throw new HttpError(400, 'url, site_id and token are required');
+    if (!b.url || !b.site_id) throw new HttpError(400, 'url and site_id are required');
+    // No token from the browser: use the one stored in the database for the site.
+    let token: string | undefined = b.token;
+    if (!token) {
+      if (!connectionString()) throw new HttpError(400, 'token is required (no database to read the stored token from)');
+      await ensureSchemaOnce();
+      token = await siteToken(b.site_id);
+      if (!token) throw new HttpError(400, `No OneStock token given nor stored in the database for site ${b.site_id}`);
+    }
     const url = target(b);
     const method = b.method === 'PATCH' ? 'PATCH' : b.method === 'POST' ? 'POST' : 'GET';
     if (method === 'PATCH' && !WRITE_PATHS.includes(b.path)) throw new HttpError(400, `PATCH not allowed on ${b.path}`);
@@ -83,7 +91,7 @@ export default route({
     let result: { status: number; data: unknown };
     try {
       const extra = Object.fromEntries(Object.entries(b.params ?? {}).filter(([k]) => ALLOWED_PARAMS.includes(k)));
-      result = await call(url, method, { site_id: b.site_id, token: b.token, ...extra });
+      result = await call(url, method, { site_id: b.site_id, token, ...extra });
     } catch (e) {
       throw new HttpError(502, `OneStock API unreachable: ${(e as Error).message}`);
     }
@@ -93,4 +101,4 @@ export default route({
     }
     return { data: result.data };
   },
-});
+}, { schema: false });
