@@ -28,6 +28,8 @@ export interface StockImportAnswer {
   site_id: string;
   mode: 'import' | 'items' | 'catalog';
   dry_run: boolean;
+  /** Import mode: quantities read as variations (true) or as the new stock (false). */
+  incremental?: boolean;
   items_scanned?: number;
   items_matched: number;
   lines: number;

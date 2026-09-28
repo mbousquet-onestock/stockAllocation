@@ -26,8 +26,9 @@ import type { Item, SegmentationRule, StockLine, StockType } from '../src/types.
  *
  *   POST /api/stock-import   (headers x-api-key, x-site-id)
  *
- * 1. `stocks` given → import: each record is the new quantity of an item × endpoint × main stock type
- *    (× purchase order for future stock). The quantity is split onto the groups with the rule of the item.
+ * 1. `stocks` given → import on an item × endpoint × main stock type (× purchase order for future stock):
+ *    `incremental: false` (update, default) the quantity is the new stock; `incremental: true` it is a variation added
+ *    to the current OneStock stock (may be negative). The resulting stock is split onto the groups with the rule of the item.
  * 2. `item_ids` given → re-segmentation of the current OneStock stock of these items with the rules.
  * 3. Nothing given → re-segmentation of the catalog, page by page: the items are read with v3/items
  *    (`limit` ids from `cursor`), those matched by a rule are segmented; call again with `next_cursor`.
@@ -54,6 +55,10 @@ interface ImportBody {
   item_ids?: string[];
   cursor?: unknown[];
   limit?: number;
+  /** Import mode: false (default) = update, stocks[].quantity is the new stock; true = variation of the current stock. */
+  incremental?: boolean;
+  /** Same as `incremental`, OneStock stock_import format ({ import: { incremental } }). */
+  import?: { incremental?: boolean };
   dry_run?: boolean;
 }
 
@@ -190,6 +195,8 @@ export default route({
     const { tree, rules } = ctx;
     const language = ctx.onestock.language || 'fr';
     const errors: string[] = [];
+    if (b.incremental !== undefined && typeof b.incremental !== 'boolean') throw new HttpError(400, 'incremental must be true or false');
+    const incremental = b.incremental ?? b.import?.incremental === true;
 
     try {
       const stocks = b.stocks;
@@ -266,19 +273,27 @@ export default route({
           if (!type) return void errors.push(`${where}: unknown stock type "${code}"`);
           if (type.parentId) return void errors.push(`${where}: "${code}" is a group, send the main stock type (${tree.code(type.parentId)}): it is split by the rules`);
           const quantity = Number(s.quantity);
-          if (!Number.isFinite(quantity) || quantity < 0) return void errors.push(`${where}: invalid quantity`);
+          if (!Number.isFinite(quantity) || (!incremental && quantity < 0))
+            return void errors.push(`${where}: invalid quantity${incremental ? '' : ' (a negative variation needs incremental: true)'}`);
           const po = type.future ? s.purchase_order_number?.trim() || null : null;
           if (type.future && !po) return void errors.push(`${where}: purchase_order_number is required on future stock (${type.code})`);
           const key = lineKey(String(s.item_id), String(s.endpoint_id), type.id, po);
           const before = byKey.get(key) ?? emptyLine(String(s.item_id), String(s.endpoint_id), type.id, po, tree);
-          const line = incoming.get(key) ?? { ...before, remoteTypes: { ...before.remoteTypes }, quantity: 0 };
+          // Update: the records give the new stock; incremental: they are added to the current stock.
+          const line = incoming.get(key) ?? { ...before, remoteTypes: { ...before.remoteTypes }, quantity: incremental ? before.quantity : 0 };
           line.quantity += Math.round(quantity);
           // Code as sent (casing of OneStock), when not read yet.
           if (!(type.id in line.remoteTypes!)) line.remoteTypes![type.id] = s.type?.trim() ?? '';
           if (s.eta_start || s.eta_end) line.eta = { start: s.eta_start ?? s.eta_end!, end: s.eta_end ?? s.eta_start! };
           incoming.set(key, line);
         });
-        incoming.forEach((line, key) => pairs.push({ before: byKey.get(key) ?? emptyLine(line.itemId, line.locationId, line.stockTypeId, line.purchaseOrder, tree), after: line }));
+        incoming.forEach((line, key) => {
+          if (line.quantity < 0) {
+            errors.push(`${line.itemId} / ${line.locationId} / ${tree.code(line.stockTypeId)}${line.purchaseOrder ? ` / ${line.purchaseOrder}` : ''}: the variation would make the stock negative (${line.quantity}), not sent`);
+            return;
+          }
+          pairs.push({ before: byKey.get(key) ?? emptyLine(line.itemId, line.locationId, line.stockTypeId, line.purchaseOrder, tree), after: line });
+        });
       } else current.lines.forEach((l) => pairs.push({ before: l, after: l }));
 
       // --- Segmentation and variations
@@ -319,6 +334,7 @@ export default route({
         site_id: site,
         mode: stocks ? 'import' : b.item_ids ? 'items' : 'catalog',
         dry_run: !!b.dry_run,
+        ...(stocks ? { incremental } : {}),
         ...(stocks ? {} : { items_scanned: scanned || itemIds.length }),
         items_matched: matched.length,
         lines: pairs.length,

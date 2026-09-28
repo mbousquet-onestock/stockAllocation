@@ -15,7 +15,7 @@ const MODES: Array<{ key: Mode; label: string; help: string }> = [
   {
     key: 'import',
     label: 'Import stock',
-    help: 'Each record is the new quantity of an item × endpoint × main stock type (× purchase order for future stock), split onto the groups by the rule of the item.',
+    help: 'Each record gives the stock of an item × endpoint × main stock type (× purchase order for future stock): the new quantity (update) or a variation (incremental: true). The resulting stock is split onto the groups by the rule of the item.',
   },
   { key: 'items', label: 'Re-segment items', help: 'The current OneStock stock of these items is split again with the rules.' },
   {
@@ -62,7 +62,8 @@ const FIELDS: Array<[string, string, string]> = [
   ['stocks', 'array (≤ 5 000)', 'Import mode: records to import (fields below).'],
   ['stocks[].item_id', 'string, required', 'OneStock item id.'],
   ['stocks[].endpoint_id', 'string, required', 'OneStock endpoint (stock location) id.'],
-  ['stocks[].quantity', 'number ≥ 0, required', 'New total quantity of the main stock type (absolute, not a variation).'],
+  ['incremental', 'boolean (default false)', 'Import mode. false = update: quantity is the new stock of the main stock type. true = incremental: quantity is a variation added to the current OneStock stock (may be negative; a line whose stock would become negative is refused). { "import": { "incremental": true } } is accepted too.'],
+  ['stocks[].quantity', 'number, required', 'Update: new total quantity of the main stock type (≥ 0). Incremental: variation (+ / −).'],
   ['stocks[].type', 'string', 'Main stock type code (on_hand, container…). Absent = on_hand. A group (on_hand_A…) is refused: the rules split the main type.'],
   ['stocks[].purchase_order_number', 'string', 'Required on future stock types (container, planned…), ignored otherwise.'],
   ['stocks[].eta_start / eta_end', 'unix seconds', 'Future stock: expected arrival. Without ETA (sent or read in OneStock) the line is not sent.'],
@@ -100,6 +101,7 @@ export function StockImportApiSettings() {
   const [mode, setMode] = useState<Mode>('import');
   const [bodies, setBodies] = useState<Partial<Record<Mode, string>>>({});
   const [dryRun, setDryRun] = useState(true);
+  const [incremental, setIncremental] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [answer, setAnswer] = useState<{ data?: StockImportAnswer; error?: string; request?: unknown }>();
@@ -142,7 +144,7 @@ export function StockImportApiSettings() {
       return { error: (e as Error).message };
     }
   }, [body]);
-  const request = parsed.value ? { ...parsed.value, dry_run: dryRun } : undefined;
+  const request = parsed.value ? { ...parsed.value, ...(mode === 'import' ? { incremental } : {}), dry_run: dryRun } : undefined;
 
   const curl = [
     `curl -X POST '${endpoint}' \\`,
@@ -304,6 +306,24 @@ export function StockImportApiSettings() {
           ))}
         </div>
         <p className="muted small">{MODES.find((m) => m.key === mode)!.help}</p>
+        {mode === 'import' && (
+          <div className="field">
+            <span className="field__label">Quantities of the records</span>
+            <div className="segmented-control" style={{ alignSelf: 'flex-start' }}>
+              <button type="button" className={!incremental ? 'is-active' : ''} onClick={() => setIncremental(false)}>
+                Update — new stock
+              </button>
+              <button type="button" className={incremental ? 'is-active' : ''} onClick={() => setIncremental(true)}>
+                Incremental — variation
+              </button>
+            </div>
+            <span className="muted small">
+              {incremental
+                ? 'incremental: true — each quantity is added to the current OneStock stock (e.g. +10 received, −3 sold), then the total is split by the rule.'
+                : 'incremental: false — each quantity replaces the stock of the main stock type, then it is split by the rule.'}
+            </span>
+          </div>
+        )}
         <label className="field">
           <span className="field__label">
             Body (JSON) —{' '}
@@ -397,7 +417,8 @@ function AnswerView({ answer }: { answer: { data?: StockImportAnswer; error?: st
   return (
     <div className={`db-status ${d.errors.length ? 'is-warning' : 'is-ok'}`}>
       <div className="db-status__title">
-        <CheckIcon /> {d.dry_run ? 'Dry run' : 'Done'} · mode {d.mode} · {d.duration_ms} ms
+        <CheckIcon /> {d.dry_run ? 'Dry run' : 'Done'} · mode {d.mode}
+        {d.incremental !== undefined && ` (${d.incremental ? 'incremental' : 'update'})`} · {d.duration_ms} ms
       </div>
       <dl>
         {d.items_scanned !== undefined && (

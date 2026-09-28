@@ -165,7 +165,7 @@ Trois usages selon le corps JSON :
 
 | Corps | Traitement |
 | --- | --- |
-| `{ "stocks": [...] }` | **Import** : chaque enregistrement est la nouvelle quantité d'un article × endpoint × type principal (× `purchase_order_number` pour le stock futur), répartie sur les groupes par la règle de l'article |
+| `{ "stocks": [...], "incremental": false }` | **Import** d'un article × endpoint × type principal (× `purchase_order_number` pour le stock futur). `incremental: false` (défaut, *update*) : la quantité est le nouveau stock ; `incremental: true` : c'est une **variation** (+ / −) ajoutée au stock OneStock actuel (refusée si le stock deviendrait négatif). Le stock obtenu est réparti sur les groupes par la règle de l'article |
 | `{ "item_ids": [...] }` | **Re-segmentation** du stock OneStock actuel de ces articles |
 | `{}` ou `{ "limit": 200, "cursor": [...] }` | **Re-segmentation du catalogue** page par page : ids lus par `v3/items`, seuls les articles couverts par une règle sont traités ; rappeler avec `next_cursor` tant qu'il n'est pas `null` |
 
