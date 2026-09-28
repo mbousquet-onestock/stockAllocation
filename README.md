@@ -19,7 +19,8 @@ npm run build      # typecheck + build de production
 - Un stock est toujours **mis à jour sur un type de stock** (import `sku;location_code;stock_type;quantity;purchase_order`,
   `stock_type` vide ou absent = `on_hand`, le type par défaut).
   La première règle active (par priorité) correspondant à l'article, au type, à l'entrepôt et au purchase order répartit
-  alors la quantité **en pourcentage** sur les groupes du type ; le reste (et l'arrondi) reste sur le type principal.
+  alors la quantité **en pourcentage** sur les groupes du type ; le reste reste sur le type principal ; l'arrondi
+  va toujours **à la hausse sur le groupe au plus fort pourcentage** (ex. 25 à 50 % / 30 % → 13 / 7, 5 sur le type principal).
   Sans règle, tout reste sur le type principal.
 - Une règle cible un ou plusieurs types de stock principaux, **tous par défaut** (y compris ceux ajoutés plus tard) ;
   la répartition en % est saisie pour les groupes de chaque type ciblé (copiable d'un type à l'autre par suffixe de groupe).

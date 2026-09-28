@@ -78,18 +78,27 @@ export function effectiveRule(rules: SegmentationRule[], item: Item, line: LineK
 // ---------------------------------------------------------------------------
 
 /**
- * Splits a quantity onto groups by percentage: floor(quantity * pct / 100) per group,
- * the rounding rest stays on the main stock type.
+ * Splits a quantity onto groups by percentage: floor(quantity * pct / 100) per group, and floor for the share left on
+ * the main stock type (100 − Σ pct). The rounding rest always goes up on the group with the highest percentage
+ * (the first one on a tie); it stays on the main stock type only when no group has a percentage.
+ * E.g. 25 at 50 % / 30 %: 12.5 / 7.5 / 5 → 13 / 7 / 5 on the main type.
  */
 export function computeSplit(quantity: number, shares: Record<string, number>, groupIds: string[]): Record<string, number> {
+  const pct = (id: string) => Math.max(0, shares[id] ?? 0);
+  const total = Math.min(100, groupIds.reduce((s, id) => s + pct(id), 0));
   let left = quantity;
-  return Object.fromEntries(
+  const split: Record<string, number> = Object.fromEntries(
     groupIds.map((id) => {
-      const q = Math.min(left, Math.floor((quantity * Math.max(0, shares[id] ?? 0)) / 100));
+      const q = Math.min(left, Math.floor((quantity * pct(id)) / 100));
       left -= q;
       return [id, q];
     }),
   );
+  const onMain = Math.min(left, Math.floor((quantity * (100 - total)) / 100));
+  const rest = left - onMain;
+  const top = groupIds.reduce<string | undefined>((best, id) => (pct(id) > 0 && (!best || pct(id) > pct(best)) ? id : best), undefined);
+  if (top && rest > 0) split[top] += rest;
+  return split;
 }
 
 /** Splits a stock line with a rule. */
