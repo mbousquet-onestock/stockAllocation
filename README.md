@@ -71,8 +71,19 @@ tables `segmentation_rules` et `api_calls` porte son site (colonne sans valeur p
 site ID saisi, l'historique reste dans le navigateur. Les lignes antérieures (site vide) sont reprises par le premier
 site qui utilise la table.
 
-Sur un nouveau poste : *Settings → Database* (Vercel database, API URL, clé) puis *Settings → OneStock API* (site ID,
-et le token s'il n'est pas stocké en base) ; le reste est chargé depuis la base.
+Sur un nouveau poste, l'accès à la base (URL de l'API, clé) ne peut pas venir de la base elle-même (il faut le
+connaître pour la lire). Il est obtenu ainsi (`src/api/bootstrap.ts`, au démarrage) :
+- **lien de configuration** : *Settings → Database → Connect the other users → Copy the setup link*
+  (`…/?setup=…` : API URL, clé API optionnelle, site ID). En l'ouvrant, le navigateur est configuré puis le paramètre est
+  retiré de l'adresse. Le lien contient la clé : à envoyer par un canal privé ;
+- **sans clé API** (`API_KEY` non défini sur Vercel) : la base du déploiement (`/api`) est détectée automatiquement
+  au premier lancement ;
+- **site** : pris automatiquement si la base ne connaît qu'un site (`GET /api/health` → `sites`), sinon proposé dans
+  *Settings → OneStock API* ;
+- si la base demande une clé et que le poste n'en a pas, un bandeau invite à ouvrir le lien ou à saisir la clé.
+
+Les options OneStock, le token (s'il est stocké en base), les types de stock et les règles du site sont ensuite chargés
+depuis la base.
 
 Token en base : cocher *Store the token in the database* puis *Save*. `PUT /api/settings` reçoit
 `{ secrets: { onestockToken } }` (`""` le supprime) ; `GET /api/settings` ne renvoie que `hasToken`. Quand le navigateur

@@ -24,6 +24,15 @@ export function getDbConfig(): DbConfig {
   return DEFAULT_DB_CONFIG;
 }
 
+/** Has this browser ever saved a database configuration? (otherwise the database of the deployment is detected) */
+export function hasSavedDbConfig(): boolean {
+  try {
+    return localStorage.getItem(KEY) !== null;
+  } catch {
+    return true;
+  }
+}
+
 export function setDbConfig(config: DbConfig) {
   try {
     localStorage.setItem(KEY, JSON.stringify(config));

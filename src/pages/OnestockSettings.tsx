@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { getDbConfig } from '../api/dbConfig';
+import { remoteRules } from '../api/remoteRules';
 import {
   callOnestock,
   DEFAULT_ONESTOCK_CONFIG,
@@ -49,6 +50,11 @@ export function OnestockSettings() {
   const sharing = getDbConfig().mode === 'remote';
   const [config, setConfig] = useState<OnestockConfig>(saved);
   const [showToken, setShowToken] = useState(false);
+  // Sites known by the shared database, proposed for the site ID.
+  const [sites, setSites] = useState<string[]>([]);
+  useEffect(() => {
+    if (getDbConfig().mode === 'remote') remoteRules.health().then((h) => setSites(h.sites ?? []), () => undefined);
+  }, []);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ categories: Category[]; languages: string[] } | { error: string }>();
   const [items, setItems] = useState<{ ids: string[]; first?: Item; more: boolean } | { error: string }>();
@@ -212,7 +218,13 @@ export function OnestockSettings() {
         </label>
         <label className="field">
           <span className="field__label">Site ID — {'{{site_id}}'}</span>
-          <input className="input" value={config.siteId} onChange={(e) => set({ siteId: e.target.value })} placeholder="e.g. c1234" />
+          <input className="input" list="known-sites" value={config.siteId} onChange={(e) => set({ siteId: e.target.value })} placeholder="e.g. c1234" />
+          <datalist id="known-sites">
+            {sites.map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
+          {sites.length > 0 && <span className="muted small">Sites of the database: {sites.join(', ')}</span>}
         </label>
         <label className="field">
           <span className="field__label">Token — {'{{token}}'}</span>

@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { setupLink } from '../api/bootstrap';
+import { currentSiteId } from '../api/site';
 import { DEFAULT_DB_CONFIG, getDbConfig, setDbConfig, type DbConfig } from '../api/dbConfig';
 import { pushLocalRulesToDatabase } from '../api/mockApi';
 import { remoteRules, type DbHealth } from '../api/remoteRules';
@@ -6,7 +8,7 @@ import { ConfirmModal } from '../components/ConfirmModal';
 import { useDataVersion } from '../components/DataVersion';
 import { CheckIcon, WarningIcon } from '../components/Icons';
 import { useToast } from '../components/Toast';
-import { Spinner } from '../components/ui';
+import { Checkbox, Spinner } from '../components/ui';
 import { plural } from '../utils/format';
 
 /** Settings → Database: where the segmentation rules are stored and how to reach the database API. */
@@ -19,6 +21,14 @@ export function DatabaseSettings() {
   const [health, setHealth] = useState<DbHealth | { ok: false; error: string }>();
   const [busy, setBusy] = useState(false);
   const [confirmPush, setConfirmPush] = useState(false);
+  const [withKey, setWithKey] = useState(true);
+  const site = currentSiteId();
+  const link = setupLink({ apiUrl: saved.apiUrl, ...(withKey && saved.apiKey ? { apiKey: saved.apiKey } : {}), ...(site ? { siteId: site } : {}) });
+  const copyLink = () =>
+    navigator.clipboard?.writeText(link).then(
+      () => notify('Setup link copied'),
+      () => notify('Copy failed: select the link and copy it', 'error'),
+    );
   const dirty = JSON.stringify(config) !== JSON.stringify(saved);
 
   const set = (patch: Partial<DbConfig>) => {
@@ -160,6 +170,36 @@ export function DatabaseSettings() {
         )}
         {dirty && <span className="text-warning small">Unsaved changes: click Save to apply them.</span>}
       </div>
+
+      {saved.mode === 'remote' && (
+        <div className="panel db-help">
+          <strong>Connect the other users</strong>
+          <p className="small">
+            The API URL and the API key cannot be read from the database (they are needed to reach it). A new computer connects by itself
+            when the API needs no key (<code>API_KEY</code> not set): the database of this deployment is detected, and the site is taken
+            when the database has only one. Otherwise send this <strong>setup link</strong>: opening it configures the browser (API URL,
+            API key, site ID); the OneStock options and token of the site are then loaded from the database.
+          </p>
+          <div className="input-group">
+            <input className="share-link" readOnly value={link} onFocus={(e) => e.target.select()} />
+            <button type="button" className="input-group__addon input-group__btn" onClick={copyLink}>
+              Copy the setup link
+            </button>
+          </div>
+          <div className="small" style={{ marginTop: 8 }}>
+            Site: <code>{site || '(none: the user will choose it in Settings → OneStock API)'}</code>
+            {saved.apiKey && (
+              <>
+                {' · '}
+                <Checkbox checked={withKey} onChange={setWithKey} label="Include the API key" />
+              </>
+            )}
+          </div>
+          {saved.apiKey && withKey && (
+            <p className="text-warning small">The link contains the API key: send it only to the users of the site, through a private channel.</p>
+          )}
+        </div>
+      )}
 
       <div className="panel db-help">
         <strong>Create the database on Vercel</strong>

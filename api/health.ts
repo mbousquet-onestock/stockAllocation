@@ -11,6 +11,11 @@ export default route({
     if (ready) await ensureSchemaOnce();
     const site = optionalSiteOf(req);
     const ruleCount = ready ? Number((await sql()`select count(*)::int as n from segmentation_rules where site_id = ${site}`)[0].n) : 0;
+    // Sites known by the database: a new computer can pick its site (or take it when there is only one).
+    const sites = ready
+      ? (await sql()<{ site_id: string }[]>`
+          select site_id from site_settings union select distinct site_id from segmentation_rules where site_id <> '' order by 1`).map((r) => r.site_id)
+      : [];
     let host = '';
     try {
       host = new URL(url).hostname;
@@ -27,6 +32,7 @@ export default route({
       ruleCount,
       apiKeyRequired: Boolean(process.env.API_KEY),
       siteId: site,
+      sites,
     };
   },
   // Must answer even when the schema is missing or DATABASE_URL is not set.

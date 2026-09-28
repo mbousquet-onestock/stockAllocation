@@ -1,6 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { api } from './api';
+import { dismissConnectionNotice, takeConnectionNotice } from './api/bootstrap';
+import { getDbConfig } from './api/dbConfig';
+import { currentSiteId } from './api/site';
 import { DataVersionProvider, useDataVersion } from './components/DataVersion';
 import { ResetIcon } from './components/Icons';
 import { ToastProvider, useToast } from './components/Toast';
@@ -38,6 +41,16 @@ function Shell() {
   const { bump } = useDataVersion();
   const notify = useToast();
   useHomeOnOpen();
+  // Result of the connection of this computer to the shared database (see api/bootstrap).
+  const [keyRequired, setKeyRequired] = useState(false);
+  useEffect(() => {
+    const n = takeConnectionNotice();
+    const site = currentSiteId();
+    if (n === 'setup-applied') notify(`Connected to the shared database${site ? ` — site ${site}` : ''}`, 'info');
+    else if (n === 'auto-detected') notify(`Shared database of this deployment used${site ? ` — site ${site}` : ''}`, 'info');
+    else if (n === 'key-required' && getDbConfig().mode === 'local') setKeyRequired(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return (
     <div className="app">
       <header className="app-header">
@@ -66,6 +79,26 @@ function Shell() {
           </button>
         )}
       </header>
+      {keyRequired && (
+        <div className="connection-banner">
+          A shared database is available on this deployment, protected by an API key: open the <strong>setup link</strong> sent by
+          your administrator, or enter the key in{' '}
+          <NavLink to="/settings" onClick={() => setKeyRequired(false)}>
+            Settings → Database
+          </NavLink>
+          .
+          <button
+            type="button"
+            className="link"
+            onClick={() => {
+              dismissConnectionNotice();
+              setKeyRequired(false);
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       <main>
         <Routes>
           <Route path="/" element={<RulesPage />} />

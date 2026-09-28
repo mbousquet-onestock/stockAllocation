@@ -12,6 +12,8 @@ export interface SiteSettings {
 
 export interface DbHealth {
   siteId?: string;
+  /** Sites known by the database. */
+  sites?: string[];
   ok: boolean;
   configured: boolean;
   error?: string;
