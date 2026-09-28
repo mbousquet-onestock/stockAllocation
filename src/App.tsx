@@ -1,4 +1,5 @@
-import { BrowserRouter, Navigate, NavLink, Route, Routes } from 'react-router-dom';
+import { useEffect } from 'react';
+import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { api } from './api';
 import { DataVersionProvider, useDataVersion } from './components/DataVersion';
 import { ResetIcon } from './components/Icons';
@@ -10,9 +11,33 @@ import { SettingsPage } from './pages/SettingsPage';
 import { StockTypesProvider } from './components/StockTypes';
 import { SettingsIcon } from './components/Icons';
 
+const OPENED_KEY = 'stock-allocation:opened';
+
+/**
+ * Home page: Segmentation rules. A new opening of the application (new tab or window, browser restart, bookmark)
+ * on the settings starts on the rules; a reload of the tab stays on the current screen.
+ */
+function useHomeOnOpen() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  useEffect(() => {
+    let opened = false;
+    try {
+      opened = sessionStorage.getItem(OPENED_KEY) === '1';
+      sessionStorage.setItem(OPENED_KEY, '1');
+    } catch {
+      /* storage unavailable: no redirect */
+      opened = true;
+    }
+    if (!opened && location.pathname.startsWith('/settings')) navigate('/', { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}
+
 function Shell() {
   const { bump } = useDataVersion();
   const notify = useToast();
+  useHomeOnOpen();
   return (
     <div className="app">
       <header className="app-header">
