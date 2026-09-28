@@ -15,7 +15,8 @@ export function checkRule(rule: Record<string, unknown>) {
   const missing = REQUIRED.filter((k) => !(k in rule));
   if (missing.length) throw new HttpError(400, `Missing fields: ${missing.join(', ')}`);
   if (typeof rule.name !== 'string' || !rule.name.trim()) throw new HttpError(400, 'The rule needs a name');
-  if (!Array.isArray(rule.criteria) || !rule.criteria.length) throw new HttpError(400, 'The rule needs criteria');
+  // No criterion: the rule applies to every item.
+  if (!Array.isArray(rule.criteria)) throw new HttpError(400, 'criteria must be a list (empty = every item)');
 }
 
 type Row = { id: string; priority: number; data: Record<string, unknown>; updated_at: Date };

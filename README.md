@@ -23,7 +23,7 @@ npm run build      # typecheck + build de production
   Sans règle, tout reste sur le type principal.
 - Une règle cible un ou plusieurs types de stock principaux, **tous par défaut** (y compris ceux ajoutés plus tard) ;
   la répartition en % est saisie pour les groupes de chaque type ciblé (copiable d'un type à l'autre par suffixe de groupe).
-- Critères des règles : ET entre caractéristiques (SKU, catégorie, marque, saison), OU entre les valeurs d'une même
+- Critères des règles (facultatifs : sans critère, la règle vise tous les articles) : ET entre caractéristiques (SKU, catégorie, marque, saison), OU entre les valeurs d'une même
   caractéristique. Restriction par purchase order uniquement si la règle cible **un seul type de stock futur**.
 
 ## Écrans

@@ -246,6 +246,7 @@ export function RulesPage() {
                   </td>
                   <td>
                     <div className="criteria-chips">
+                      {!rule.criteria.length && <span className="chip chip--criterion">All items</span>}
                       {rule.criteria.map((c) =>
                         c.attribute === 'sku' ? (
                           <span className="chip chip--criterion chip--sku" key={c.attribute}>

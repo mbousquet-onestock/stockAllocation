@@ -64,7 +64,8 @@ export function RuleEditorModal({
   const typeTotal = (typeId: string) => tree.groupsOf(typeId).reduce((s, g) => s + (numericShares[g.id] ?? 0), 0);
   const valuesValid = targetedGroups.every((g) => isInt(shares[g.id] ?? '') && isInt(thresholds[g.id] ?? ''));
   const sharesValid = targeted.every((t) => typeTotal(t.id) <= 100) && targeted.some((t) => typeTotal(t.id) > 0);
-  const criteriaValid = criteria.length > 0 && criteria.every((c) => c.values.length > 0);
+  // Characteristics are optional: without criterion the rule applies to every item.
+  const criteriaValid = criteria.every((c) => c.values.length > 0);
   const valid = !!name.trim() && targeted.length > 0 && (!specificLocations || locationIds.length > 0) && criteriaValid && valuesValid && sharesValid && isPeriodValid(period);
 
   /** Group suffix (e.g. "A" for on_hand_A), used to copy a split between stock types. */
@@ -147,14 +148,17 @@ export function RuleEditorModal({
         <Checkbox checked={enabled} onChange={setEnabled} label="Enabled" />
       </div>
 
-      <h3 className="section-title">1. Item characteristics</h3>
+      <h3 className="section-title">
+        1. Item characteristics <span className="muted small">(optional — none: every item)</span>
+      </h3>
       <div className="panel">
         <CriteriaEditor criteria={criteria} onChange={setCriteria} />
         <div className="preview">
           {!criteriaValid ? (
-            <span className="muted">Choose at least one value for each criterion.</span>
+            <span className="muted">Choose at least one value for each criterion, or remove it.</span>
           ) : preview.data ? (
             <>
+              {!criteria.length && <span className="muted">No criterion: the rule applies to every item — </span>}
               <strong>{plural(preview.data.itemCount, 'item')} matched</strong>
               {preview.data.sample.length > 0 && (
                 <span className="muted">

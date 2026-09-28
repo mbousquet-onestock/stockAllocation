@@ -37,9 +37,9 @@ export function itemValues(item: Item, key: AttributeKey): string[] {
   return v ? [v] : [];
 }
 
-/** All criteria must match; inside a criterion any value matches. */
+/** All criteria must match; inside a criterion any value matches. No criterion: every item matches. */
 export function matchesCriteria(item: Item, criteria: Criterion[]): boolean {
-  if (!criteria.length) return false;
+  if (!criteria.length) return true;
   return criteria.every((c) => {
     if (!c.values.length) return false;
     const values = new Set(itemValues(item, c.attribute).map(norm));
