@@ -15,7 +15,7 @@ const MODES: Array<{ key: Mode; label: string; help: string }> = [
   {
     key: 'import',
     label: 'Import stock',
-    help: 'Each record gives the stock of an item × endpoint × main stock type (× purchase order for future stock): the new quantity (update) or a variation (incremental: true). The resulting stock is split onto the groups by the rule of the item.',
+    help: 'Each record gives the stock of an item × endpoint × main stock type (× purchase order for future stock): the new quantity (update: the whole stock is split again by the rule of the item) or a variation (incremental: true: only the variation is split by the rule and added to the current segments).',
   },
   { key: 'items', label: 'Re-segment items', help: 'The current OneStock stock of these items is split again with the rules.' },
   {
@@ -62,7 +62,7 @@ const FIELDS: Array<[string, string, string]> = [
   ['stocks', 'array (≤ 5 000)', 'Import mode: records to import (fields below).'],
   ['stocks[].item_id', 'string, required', 'OneStock item id.'],
   ['stocks[].endpoint_id', 'string, required', 'OneStock endpoint (stock location) id.'],
-  ['incremental', 'boolean (default false)', 'Import mode. false = update: quantity is the new stock of the main stock type. true = incremental: quantity is a variation added to the current OneStock stock (may be negative; a line whose stock would become negative is refused). { "import": { "incremental": true } } is accepted too.'],
+  ['incremental', 'boolean (default false)', 'Import mode. false = update: quantity is the new stock of the main stock type. true = incremental: quantity is a variation (may be negative): only the variation is split by the rule and added to the current segments, which are not re-segmented; a − variation missing on a segment is taken from the others, largest share first. A line whose stock would become negative is refused. { "import": { "incremental": true } } is accepted too.'],
   ['stocks[].quantity', 'number, required', 'Update: new total quantity of the main stock type (≥ 0). Incremental: variation (+ / −).'],
   ['stocks[].type', 'string', 'Main stock type code (on_hand, container…). Absent = on_hand. A group (on_hand_A…) is refused: the rules split the main type.'],
   ['stocks[].purchase_order_number', 'string', 'Required on future stock types (container, planned…), ignored otherwise.'],
@@ -319,8 +319,8 @@ export function StockImportApiSettings() {
             </div>
             <span className="muted small">
               {incremental
-                ? 'incremental: true — each quantity is added to the current OneStock stock (e.g. +10 received, −3 sold), then the total is split by the rule.'
-                : 'incremental: false — each quantity replaces the stock of the main stock type, then it is split by the rule.'}
+                ? 'incremental: true — each quantity is a variation (e.g. +10 received, −3 sold): only it is split by the rule and added to the current segments.'
+                : 'incremental: false — each quantity replaces the stock of the main stock type, and the whole stock is split again by the rule.'}
             </span>
           </div>
         )}

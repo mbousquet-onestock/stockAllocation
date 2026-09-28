@@ -79,9 +79,10 @@ export function effectiveRule(rules: SegmentationRule[], item: Item, line: LineK
 
 /**
  * Splits a quantity onto groups by percentage: floor(quantity * pct / 100) per group, and floor for the share left on
- * the main stock type (100 − Σ pct). The rounding rest always goes up on the group with the highest percentage
- * (the first one on a tie); it stays on the main stock type only when no group has a percentage.
- * E.g. 25 at 50 % / 30 %: 12.5 / 7.5 / 5 → 13 / 7 / 5 on the main type.
+ * the main (default) stock type (100 − Σ pct). The rounding rest always goes up on the segment with the highest
+ * percentage, which may be the main stock type itself (a group wins a tie).
+ * E.g. 25 at A 50 % / B 30 % (main 20 %): 12.5 / 7.5 / 5 → A 13 / B 7 / main 5;
+ *      25 at A 30 % / B 20 % (main 50 %): 7.5 / 5 / 12.5 → A 7 / B 5 / main 13.
  */
 export function computeSplit(quantity: number, shares: Record<string, number>, groupIds: string[]): Record<string, number> {
   const pct = (id: string) => Math.max(0, shares[id] ?? 0);
@@ -97,8 +98,50 @@ export function computeSplit(quantity: number, shares: Record<string, number>, g
   const onMain = Math.min(left, Math.floor((quantity * (100 - total)) / 100));
   const rest = left - onMain;
   const top = groupIds.reduce<string | undefined>((best, id) => (pct(id) > 0 && (!best || pct(id) > pct(best)) ? id : best), undefined);
-  if (top && rest > 0) split[top] += rest;
+  // The main stock type keeps the rest when its own share is the largest (or when no group has a share).
+  if (top && rest > 0 && pct(top) >= 100 - total) split[top] += rest;
   return split;
+}
+
+/**
+ * Incremental import: only the variation is segmented and added to the current segments, which are not re-split.
+ * + variation: split by the rule (no rule: all on the main stock type) and added.
+ * − variation: split the same way and removed; what a segment lacks is taken from the other segments,
+ *   the largest share first (no rule: from the main stock type first).
+ */
+export function applyVariationToLine(line: StockLine, delta: number, rule: SegmentationRule | undefined, tree: StockTypeTree): StockLine {
+  const groupIds = tree.groupsOf(line.stockTypeId).map((g) => g.id);
+  const MAIN = '';
+  const current: Record<string, number> = Object.fromEntries(groupIds.map((id) => [id, line.split[id]?.quantity ?? 0]));
+  current[MAIN] = line.quantity - groupIds.reduce((s, id) => s + current[id], 0);
+  const amount = Math.abs(delta);
+  const parts: Record<string, number> = rule ? computeSplit(amount, rule.shares, groupIds) : Object.fromEntries(groupIds.map((id) => [id, 0]));
+  parts[MAIN] = amount - groupIds.reduce((s, id) => s + (parts[id] ?? 0), 0);
+  const next = { ...current };
+  if (delta >= 0) Object.keys(parts).forEach((k) => (next[k] += parts[k]));
+  else {
+    let missing = 0;
+    Object.keys(parts).forEach((k) => {
+      next[k] -= parts[k];
+      if (next[k] < 0) {
+        missing -= next[k];
+        next[k] = 0;
+      }
+    });
+    const share = (k: string) =>
+      rule ? (k === MAIN ? 100 - groupIds.reduce((s, id) => s + Math.max(0, rule.shares[id] ?? 0), 0) : Math.max(0, rule.shares[k] ?? 0)) : k === MAIN ? 1 : 0;
+    for (const k of Object.keys(next).sort((a, b) => share(b) - share(a))) {
+      const take = Math.min(missing, next[k]);
+      next[k] -= take;
+      missing -= take;
+    }
+  }
+  return {
+    ...line,
+    quantity: line.quantity + delta,
+    split: Object.fromEntries(groupIds.map((id) => [id, { quantity: next[id], threshold: rule?.thresholds[id] ?? line.split[id]?.threshold ?? null }])),
+    ...(rule ? { source: { type: 'rule' as const, ruleId: rule.id }, period: rule.period } : {}),
+  };
 }
 
 /** Splits a stock line with a rule. */

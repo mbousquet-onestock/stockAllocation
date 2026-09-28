@@ -3,6 +3,7 @@ import { answerError, callJson, onestockUrl } from './_lib/onestockHttp.js';
 import { listRules } from './_lib/rules.js';
 import {
   applyRuleToLine,
+  applyVariationToLine,
   categoryParentMap,
   DEFAULT_STOCK_TYPE,
   effectiveRule,
@@ -27,8 +28,9 @@ import type { Item, SegmentationRule, StockLine, StockType } from '../src/types.
  *   POST /api/stock-import   (headers x-api-key, x-site-id)
  *
  * 1. `stocks` given → import on an item × endpoint × main stock type (× purchase order for future stock):
- *    `incremental: false` (update, default) the quantity is the new stock; `incremental: true` it is a variation added
- *    to the current OneStock stock (may be negative). The resulting stock is split onto the groups with the rule of the item.
+ *    `incremental: false` (update, default) the quantity is the new stock, split again onto the groups with the rule of
+ *    the item; `incremental: true` it is a variation (may be negative): only the variation is split by the rule and
+ *    added to the current segments, which are not re-segmented.
  * 2. `item_ids` given → re-segmentation of the current OneStock stock of these items with the rules.
  * 3. Nothing given → re-segmentation of the catalog, page by page: the items are read with v3/items
  *    (`limit` ids from `cursor`), those matched by a rule are segmented; call again with `next_cursor`.
@@ -261,9 +263,11 @@ export default route({
       const byKey = new Map(current.lines.map((l) => [l.id, l]));
 
       // --- New lines
-      const pairs: Array<{ before: StockLine; after: StockLine }> = [];
+      // delta (incremental import): only this variation is segmented, the current segments are kept.
+      const pairs: Array<{ before: StockLine; after: StockLine; delta?: number }> = [];
       if (stocks) {
         const incoming = new Map<string, StockLine>();
+        const variations = new Map<string, number>();
         stocks.forEach((s, i) => {
           const where = `stocks[${i}]`;
           const code = s?.type?.trim() || DEFAULT_STOCK_TYPE;
@@ -282,6 +286,7 @@ export default route({
           // Update: the records give the new stock; incremental: they are added to the current stock.
           const line = incoming.get(key) ?? { ...before, remoteTypes: { ...before.remoteTypes }, quantity: incremental ? before.quantity : 0 };
           line.quantity += Math.round(quantity);
+          variations.set(key, (variations.get(key) ?? 0) + Math.round(quantity));
           // Code as sent (casing of OneStock), when not read yet.
           if (!(type.id in line.remoteTypes!)) line.remoteTypes![type.id] = s.type?.trim() ?? '';
           if (s.eta_start || s.eta_end) line.eta = { start: s.eta_start ?? s.eta_end!, end: s.eta_end ?? s.eta_start! };
@@ -292,7 +297,9 @@ export default route({
             errors.push(`${line.itemId} / ${line.locationId} / ${tree.code(line.stockTypeId)}${line.purchaseOrder ? ` / ${line.purchaseOrder}` : ''}: the variation would make the stock negative (${line.quantity}), not sent`);
             return;
           }
-          pairs.push({ before: byKey.get(key) ?? emptyLine(line.itemId, line.locationId, line.stockTypeId, line.purchaseOrder, tree), after: line });
+          const before = byKey.get(key) ?? emptyLine(line.itemId, line.locationId, line.stockTypeId, line.purchaseOrder, tree);
+          if (incremental) pairs.push({ before, after: { ...line, quantity: before.quantity }, delta: variations.get(key) ?? 0 });
+          else pairs.push({ before, after: line });
         });
       } else current.lines.forEach((l) => pairs.push({ before: l, after: l }));
 
@@ -301,11 +308,16 @@ export default route({
       const deltas: StockImportRecord[] = [];
       let unchanged = 0;
       let withoutRuleCount = 0;
-      pairs.forEach(({ before, after: base }) => {
+      pairs.forEach(({ before, after: base, delta }) => {
         const item = items.get(base.itemId)!;
         const rule = effectiveRule(rules, item, base);
         if (!rule) withoutRuleCount++;
-        const after = rule ? applyRuleToLine(base, rule, tree) : withoutRule(base, tree);
+        const after =
+          delta !== undefined
+            ? applyVariationToLine(base, delta, rule, tree)
+            : rule
+              ? applyRuleToLine(base, rule, tree)
+              : withoutRule(base, tree);
         const records = lineDeltaRecords(before, after, tree);
         if (!records.length) return void unchanged++;
         const blocked = tree.byId(after.stockTypeId)?.future && !after.eta ? 'Future stock without ETA (eta_start / eta_end): not sent' : undefined;

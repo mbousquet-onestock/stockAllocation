@@ -20,7 +20,9 @@ npm run build      # typecheck + build de production
   `stock_type` vide ou absent = `on_hand`, le type par défaut).
   La première règle active (par priorité) correspondant à l'article, au type, à l'entrepôt et au purchase order répartit
   alors la quantité **en pourcentage** sur les groupes du type ; le reste reste sur le type principal ; l'arrondi
-  va toujours **à la hausse sur le groupe au plus fort pourcentage** (ex. 25 à 50 % / 30 % → 13 / 7, 5 sur le type principal).
+  va toujours **à la hausse sur le segment au plus fort pourcentage**, qui peut être le type principal (segment par défaut :
+  on_hand, container…). Ex. 25 à A 50 % / B 30 % → 13 / 7, 5 sur le type principal ; 25 à A 30 % / B 20 % → 7 / 5, 13 sur
+  le type principal (50 %). À égalité, un groupe l'emporte.
   Sans règle, tout reste sur le type principal.
 - Une règle cible un ou plusieurs types de stock principaux, **tous par défaut** (y compris ceux ajoutés plus tard) ;
   la répartition en % est saisie pour les groupes de chaque type ciblé (copiable d'un type à l'autre par suffixe de groupe).
@@ -165,7 +167,7 @@ Trois usages selon le corps JSON :
 
 | Corps | Traitement |
 | --- | --- |
-| `{ "stocks": [...], "incremental": false }` | **Import** d'un article × endpoint × type principal (× `purchase_order_number` pour le stock futur). `incremental: false` (défaut, *update*) : la quantité est le nouveau stock ; `incremental: true` : c'est une **variation** (+ / −) ajoutée au stock OneStock actuel (refusée si le stock deviendrait négatif). Le stock obtenu est réparti sur les groupes par la règle de l'article |
+| `{ "stocks": [...], "incremental": false }` | **Import** d'un article × endpoint × type principal (× `purchase_order_number` pour le stock futur). `incremental: false` (défaut, *update*) : la quantité est le nouveau stock et le stock entier est re-segmenté par la règle ; `incremental: true` : c'est une **variation** (+ / −) : **seule la variation** est répartie par la règle et ajoutée aux segments actuels, sans re-segmenter le stock existant (une baisse qui manque sur un segment est prise sur les autres, plus forte part d'abord ; refusée si le stock deviendrait négatif) |
 | `{ "item_ids": [...] }` | **Re-segmentation** du stock OneStock actuel de ces articles |
 | `{}` ou `{ "limit": 200, "cursor": [...] }` | **Re-segmentation du catalogue** page par page : ids lus par `v3/items`, seuls les articles couverts par une règle sont traités ; rappeler avec `next_cursor` tant qu'il n'est pas `null` |
 
