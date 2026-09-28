@@ -16,7 +16,6 @@ function Shell() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>Stock allocation</h1>
         <nav className="nav">
           <NavLink to="/" end>
             Segmentation rules
