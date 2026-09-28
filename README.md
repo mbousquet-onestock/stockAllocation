@@ -88,6 +88,7 @@ Les règles peuvent être stockées dans une base **Postgres (Neon) sur Vercel**
 | PUT | `/api/rules` | `{ order: [ids] }` ordre des priorités, ou `{ rules: [...] }` remplacement complet |
 | GET / PUT / DELETE | `/api/rules/:id` | Lecture / modification / suppression |
 | GET / PUT | `/api/settings` | Paramètres partagés du site (types de stock, options OneStock ; token en écriture seule) |
+| POST | `/api/stock-import` | Import / re-segmentation du stock OneStock avec les règles du site (voir ci-dessous) |
 | GET / POST / DELETE | `/api/api-calls` | Historique des appels API : lecture (`limit`, `offset`, `target`, `errors`, `q`) / ajout par lots / purge |
 
 Mise en place :
@@ -113,8 +114,9 @@ stock_export), méthode HTTP des lectures (GET par défaut : categories, endpoin
   - index des ids (`{ pagination: { limit: 25, start } }`, repli sur `search_after` si `start` n'est pas pris en compte),
     chargé une fois (jusqu'à 5 000 articles, cache 10 min) pour la **complétion** de la recherche et les critères SKU ;
   - détail par lot (`{ item_ids: [...] }`, **sans pagination**, 25 ids par appel, 4 appels en parallèle) :
-    `features.<langue>` (langue par défaut, sinon la première) → nom, image, désignation, catégorie / marque / saison si
-    présentes. Le détail est chargé pour **tout le catalogue** afin d'évaluer les critères des règles (cache compact
+    `features.<langue>` (langue par défaut, sinon la première) → nom, image, désignation, marque / saison si
+    présentes ; la **catégorie** vient de `category_ids` (niveau article), une règle sur une catégorie couvre aussi ses
+    sous-catégories. Le détail est chargé pour **tout le catalogue** afin d'évaluer les critères des règles (cache compact
     d'une heure dans le navigateur). Les SKU sont affichés « désignation (id) » dans les critères et suggestions.
   - L'import de stock accepte alors tout SKU OneStock (id d'article) et les ids d'endpoints comme `location_code`.
 - Le **stock** des articles vient de `{{url}}/stock_export` (`{ request_name: {{stock_request}}, item_filter: { ids } }`,
@@ -151,10 +153,49 @@ stock_export), méthode HTTP des lectures (GET par défaut : categories, endpoin
   défaut, sinon dans la première langue disponible, sinon par son id. Les règles stockent l'**id** de la catégorie.
 - Le proxy utilise l'URL et la clé API de *Settings → Database*.
 
+## API d'import de stock (Vercel)
+
+`POST /api/stock-import` (en-têtes `x-api-key`, `x-site-id`) s'exécute **côté serveur**, sans navigateur : elle peut être
+appelée par un ERP, un ordonnanceur ou un cron. Elle utilise ce qui est enregistré en base pour le site : URL et
+options OneStock, **token** (*Store the token in the database* obligatoire), types de stock et règles de segmentation.
+Les calculs sont ceux de l'application (module commun `api/_lib/segmentation.ts`).
+
+Trois usages selon le corps JSON :
+
+| Corps | Traitement |
+| --- | --- |
+| `{ "stocks": [...] }` | **Import** : chaque enregistrement est la nouvelle quantité d'un article × endpoint × type principal (× `purchase_order_number` pour le stock futur), répartie sur les groupes par la règle de l'article |
+| `{ "item_ids": [...] }` | **Re-segmentation** du stock OneStock actuel de ces articles |
+| `{}` ou `{ "limit": 200, "cursor": [...] }` | **Re-segmentation du catalogue** page par page : ids lus par `v3/items`, seuls les articles couverts par une règle sont traités ; rappeler avec `next_cursor` tant qu'il n'est pas `null` |
+
+Option `"dry_run": true` : calcule sans envoyer. Déroulé : `v3/items` (`item_ids`, détails → critères `category_ids`,
+marque, saison…) → règle effective par ligne → `stock_export` (stock actuel, `item_filter`) → `PATCH stock_import`
+avec `incremental: true` et la **variation** de chaque type de stock (lots de 500).
+
+```json
+POST /api/stock-import
+{ "stocks": [
+  { "item_id": "michelin_…-30", "endpoint_id": "michelin_clermont-warehouse", "type": "on_hand", "quantity": 40 },
+  { "item_id": "michelin_…-12", "endpoint_id": "michelin_sydney-warehouse", "type": "Container", "quantity": 10,
+    "purchase_order_number": "Container_009", "eta_start": 1790589600, "eta_end": 1790589600 }
+] }
+```
+
+Réponse : compteurs (`lines`, `changed`, `unchanged`, `without_rule`, `blocked`, `records_sent`…), `errors`,
+`changes` (avant / après par segment, règle appliquée) et `records` envoyés. Règles :
+- `type` absent = `on_hand` ; un **groupe** (`on_hand_A`…) est refusé : c'est la règle qui répartit le type principal.
+- Stock futur : `purchase_order_number` obligatoire ; sans ETA (reçue ou lue dans OneStock) la ligne n'est pas envoyée.
+- Article sans règle : les groupes gardent leur quantité (réduite si le nouveau stock est plus petit), le reste va sur
+  le type principal.
+- Une règle sur une catégorie s'applique aussi à ses sous-catégories (arbre `/categories`).
+- Les appels OneStock faits par la fonction sont historisés (*Settings → API calls*, cible « OneStock (server) »).
+- Durée maximale 60 s (`vercel.json`) ; le parcours du catalogue s'arrête avant et rend `next_cursor`.
+
 ## Architecture
 
 ```
-api/                   Fonctions serverless Vercel (règles de segmentation en base Postgres)
+api/                   Fonctions serverless Vercel (règles en base Postgres, proxy OneStock, stock-import)
+  _lib/segmentation.ts Logique de segmentation commune à l'application et aux fonctions
 src/
   api/types.ts         Contrat StockAllocationApi (à implémenter côté HTTP)
   api/remoteRules.ts   Client HTTP des fonctions /api ; api/dbConfig.ts : paramètres Settings → Database

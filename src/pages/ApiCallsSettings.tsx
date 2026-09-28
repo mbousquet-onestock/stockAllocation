@@ -117,6 +117,7 @@ export function ApiCallsSettings() {
       <div className="toolbar api-toolbar">
         <select className="select" value={target} onChange={(e) => setTarget(e.target.value as typeof target)} aria-label="Target">
           <option value="">All APIs</option>
+          <option value="OneStock (server)">OneStock (server: stock import)</option>
           <option value="OneStock">OneStock</option>
           <option value="Database">Database</option>
         </select>
@@ -151,7 +152,7 @@ export function ApiCallsSettings() {
                     {new Date(e.at).toLocaleDateString('fr-FR')} {new Date(e.at).toLocaleTimeString('fr-FR')}
                   </td>
                   <td>
-                    <span className={`badge ${e.target === 'OneStock' ? 'badge--rule' : 'badge--future'}`}>{e.target}</span>
+                    <span className={`badge ${e.target.startsWith('OneStock') ? 'badge--rule' : 'badge--future'}`}>{e.target}</span>
                   </td>
                   <td>
                     <code>{e.method}</code>

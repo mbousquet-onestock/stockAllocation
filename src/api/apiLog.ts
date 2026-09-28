@@ -8,7 +8,7 @@ import { currentSiteId, siteHeader } from './site';
 export interface ApiLogEntry {
   id: number;
   at: number; // ms
-  target: 'OneStock' | 'Database';
+  target: 'OneStock' | 'Database' | 'OneStock (server)';
   method: string;
   path: string;
   /** Request body, secrets masked. */
