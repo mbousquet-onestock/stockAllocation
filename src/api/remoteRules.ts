@@ -23,6 +23,36 @@ export interface DbHealth {
   apiKeyRequired?: boolean;
 }
 
+/** Answer of POST /api/stock-import. */
+export interface StockImportAnswer {
+  site_id: string;
+  mode: 'import' | 'items' | 'catalog';
+  dry_run: boolean;
+  items_scanned?: number;
+  items_matched: number;
+  lines: number;
+  changed: number;
+  blocked: number;
+  unchanged: number;
+  without_rule: number;
+  records_sent: number;
+  stock_import_calls: number;
+  next_cursor?: unknown[] | null;
+  duration_ms: number;
+  errors: string[];
+  changes: Array<{
+    item_id: string;
+    endpoint_id: string;
+    stock_type: string;
+    purchase_order_number: string | null;
+    rule: string | null;
+    before: Record<string, number>;
+    after: Record<string, number>;
+    blocked?: string;
+  }>;
+  records: unknown[];
+}
+
 /** HTTP client of the rule endpoints (Vercel functions in /api). */
 async function call<T>(path: string, init: RequestInit = {}, config: DbConfig = getDbConfig()): Promise<T> {
   const base = config.apiUrl.replace(/\/+$/, '');
@@ -83,5 +113,7 @@ export const remoteRules = {
   replaceAll: (rules: SegmentationRule[], config?: DbConfig) => call<SegmentationRule[]>('/rules', json('PUT', { rules }), config),
   /** Settings shared by the users of the site (stock types, OneStock options — no secrets). */
   getSiteSettings: () => call<{ siteId: string; settings: SiteSettings | null; hasToken: boolean; updatedAt: string | null }>('/settings'),
+  /** Server side stock import with the segmentation rules (api/stock-import). */
+  stockImport: (body: Record<string, unknown>) => call<StockImportAnswer>('/stock-import', json('POST', body)),
   saveSiteSettings: (patch: SiteSettings) => call<{ siteId: string; settings: SiteSettings }>('/settings', json('PUT', patch)),
 };

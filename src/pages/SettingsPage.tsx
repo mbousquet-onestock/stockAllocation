@@ -5,6 +5,7 @@ import { currentSiteId } from '../api/site';
 import { DatabaseSettings } from './DatabaseSettings';
 import { OnestockSettings } from './OnestockSettings';
 import { ApiCallsSettings } from './ApiCallsSettings';
+import { StockImportApiSettings } from './StockImportApiSettings';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { useDataVersion } from '../components/DataVersion';
 import { ArrowDownIcon, ArrowUpIcon, EditIcon, TrashIcon, TruckIcon, WarehouseIcon } from '../components/Icons';
@@ -225,6 +226,7 @@ const MENUS = [
   { key: 'stock-types', label: 'Stock types' },
   { key: 'database', label: 'Database' },
   { key: 'onestock', label: 'OneStock API' },
+  { key: 'stock-import', label: 'Stock import API' },
   { key: 'api-calls', label: 'API calls' },
 ];
 
@@ -244,6 +246,7 @@ export function SettingsPage() {
         {menu === 'stock-types' && <StockTypesSettings />}
         {menu === 'database' && <DatabaseSettings />}
         {menu === 'onestock' && <OnestockSettings />}
+        {menu === 'stock-import' && <StockImportApiSettings />}
         {menu === 'api-calls' && <ApiCallsSettings />}
       </section>
     </div>

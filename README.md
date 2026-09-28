@@ -190,6 +190,9 @@ Réponse : compteurs (`lines`, `changed`, `unchanged`, `without_rule`, `blocked`
 - Une règle sur une catégorie s'applique aussi à ses sous-catégories (arbre `/categories`).
 - Les appels OneStock faits par la fonction sont historisés (*Settings → API calls*, cible « OneStock (server) »).
 - Durée maximale 60 s (`vercel.json`) ; le parcours du catalogue s'arrête avant et rend `next_cursor`.
+- *Settings → Stock import API* : critères d'appel (URL, en-têtes, modes, champs, réponse), prérequis du site vérifiés
+  en base, exemple `curl` et **testeur** (simulation `dry_run` par défaut, envoi réel après confirmation, page suivante
+  du catalogue).
 
 ## Architecture
 

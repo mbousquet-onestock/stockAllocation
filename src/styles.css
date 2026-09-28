@@ -364,3 +364,18 @@ main { padding: 0 40px 100px; }
 .sku-list__item { display: flex; flex-direction: column; line-height: 1.25; }
 .sku-list__item .small { word-break: break-all; font-size: 10.5px; }
 .chip--sku { min-width: 230px; }
+
+/* Stock import API */
+.api-def { display: grid; grid-template-columns: 160px 1fr; gap: 6px 16px; margin: 0; font-size: 13px; }
+.api-def dt { color: var(--muted); }
+.api-def dd { margin: 0; }
+.check-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.check-list li { display: flex; align-items: center; gap: 6px; }
+.check-list li.is-ok svg { color: var(--primary); }
+.check-list li.is-error svg { color: var(--error); }
+.code-input { font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.45; height: auto; padding: 8px 10px; resize: vertical; }
+.db-status.is-warning { border-color: #e0a800; background: #fff8e1; }
+.api-changes { margin: 10px 0; background: var(--surface); }
+.seg-deltas { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.seg-delta { color: var(--muted); }
+.seg-delta.is-changed { color: var(--text); }
