@@ -158,9 +158,11 @@ export function RulesPage() {
       </div>
 
       <p className="muted small hint">
-        <span className={`badge ${getDbConfig().mode === 'remote' ? 'badge--rule' : 'badge--muted'}`}>
-          {getDbConfig().mode === 'remote' ? 'Rules stored in the Vercel database' : 'Rules stored in this browser (demo)'}
-        </span>{' '}
+        {getDbConfig().mode !== 'remote' && (
+          <>
+            <span className="badge badge--muted">Rules stored in this browser (demo)</span>{' '}
+          </>
+        )}
         Rules are applied when the stock of an item is updated on a stock type, by priority: the first enabled rule matching the
         item characteristics, the stock type, the location (and the purchase order for future stock) splits the stock onto the groups
         of the type, in percentage.
