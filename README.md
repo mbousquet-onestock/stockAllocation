@@ -42,7 +42,10 @@ npm run build      # typecheck + build de production
   sur PO / point de stock / type, suggestions de PO avec quantité et ETA, de points de stock et « sans purchase order »,
   clic sur un PO d'une ligne), la source (règle / manuel / aucune) et la règle du prochain import ; clic sur une
   ligne = modification manuelle.
-- **Settings** (`/settings`) → *Stock types* : création, modification, ordre et suppression des types et de leurs groupes.
+- **Settings** (`/settings`) → *Stock types* : éditeur de toute la configuration (codes, libellés, stock futur, ordre,
+  ajout et suppression des types et de leurs groupes), enregistrée d'un coup par **Save for site …** pour le site ID
+  (base Vercel), ou dans le navigateur sans base. *Cancel* annule les modifications. L'enregistrement est refusé si un
+  type supprimé est utilisé par une règle ; un code invalide ou en double est signalé pendant la saisie.
 - **Settings** → *OneStock API* : URL, site_id, token, langue par défaut ; tests de chargement des catégories, des stock locations, des articles et du stock.
 - **Settings** → *API calls* : journal des appels API (OneStock via le proxy, base de données) avec date, méthode,
   chemin, statut, durée, résumé du résultat, requête et réponse (JSON, copiables) ; filtres par API, erreurs seules et

@@ -385,3 +385,10 @@ main { padding-top: 20px; }
 .connection-banner { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 16px 40px 0; padding: 10px 16px; border: 1px solid #e0a800; background: #fff8e1; border-radius: var(--radius); font-size: 13px; }
 .connection-banner .link { margin-left: auto; }
 .share-link { font-family: ui-monospace, monospace; font-size: 12px; }
+.stock-type__fields { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.stock-type__fields .input { width: auto; flex: 1; min-width: 160px; max-width: 280px; }
+.stock-type .table .input { max-width: 260px; }
+.input--sm { height: 32px; font-size: 13px; }
+.code-field { font-family: ui-monospace, monospace; }
+.input.is-invalid { border-color: var(--error); }
+.stock-types-error { margin-bottom: 12px; }

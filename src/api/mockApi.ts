@@ -1,3 +1,4 @@
+import { plural } from '../utils/format';
 import { itemAttribute } from '../config/attributes';
 import type {
   Item,
@@ -330,6 +331,54 @@ export const mockApi: StockAllocationApi = {
     persist();
     await pushStockTypes();
     return delay(undefined);
+  },
+
+  async saveStockTypes(input) {
+    // Normalized copy: trimmed, groups inherit the future flag of their main type, positions renumbered.
+    const mains = input.filter((t) => t.parentId === null).sort((a, b) => a.position - b.position);
+    const next: StockType[] = [];
+    mains.forEach((m, i) => {
+      next.push({ ...m, code: m.code.trim(), label: m.label.trim(), position: i + 1 });
+      input
+        .filter((g) => g.parentId === m.id)
+        .sort((a, b) => a.position - b.position)
+        .forEach((g, j) => next.push({ ...g, code: g.code.trim(), label: g.label.trim(), future: m.future, position: j + 1 }));
+    });
+    const orphans = input.filter((t) => t.parentId !== null && !mains.some((m) => m.id === t.parentId));
+    if (orphans.length) return fail(`Groups without main stock type: ${orphans.map((o) => o.code).join(', ')}`);
+    if (!mains.length) return fail('At least one main stock type is required');
+    const seen = new Map<string, string>();
+    for (const t of next) {
+      if (!/^[A-Za-z0-9_-]+$/.test(t.code)) return fail(`Invalid code "${t.code}": only letters, digits, "_" and "-"`);
+      if (!t.label) return fail(`The label of ${t.code} is required`);
+      const k = t.code.toLowerCase();
+      if (seen.has(k)) return fail(`The code "${t.code}" is used twice`);
+      seen.set(k, t.id);
+    }
+    const removed = db.stockTypes.filter((t) => !next.some((n) => n.id === t.id)).map((t) => t.id);
+    await syncRules();
+    const using = rules().filter((r) => r.stockTypeIds.some((s) => removed.includes(s)) || removed.some((g) => (r.shares[g] ?? 0) > 0));
+    if (using.length)
+      return fail(`Removed stock types are used by ${plural(using.length, 'rule')}: ${using.map((r) => r.name).join(', ')}`);
+    // Demo stock (stored in this browser) only: the OneStock stock is not checked.
+    if (!useOnestockStock()) {
+      if (db.lines.some((l) => removed.includes(l.stockTypeId) || removed.some((g) => (l.split[g]?.quantity ?? 0) > 0)))
+        return fail('A removed stock type holds demo stock');
+      const notFuture = next.filter((t) => t.parentId === null && !t.future).map((t) => t.id);
+      if (db.lines.some((l) => l.purchaseOrder && notFuture.includes(l.stockTypeId)))
+        return fail('Demo stock with purchase orders exists on a type that is no longer future stock');
+    }
+    // Saved for the site first: nothing changes here if the database refuses it.
+    if (siteShared()) await remoteRules.saveSiteSettings({ stockTypes: next });
+    db.stockTypes = next;
+    db.lines.forEach((l) => removed.forEach((g) => delete l.split[g]));
+    // Purchase orders are only allowed on a single future stock type.
+    const nowNotFuture = next.filter((t) => t.parentId === null && !t.future).map((t) => t.id);
+    const affected = rules().filter((r) => r.purchaseOrders.length && r.stockTypeIds.some((s) => nowNotFuture.includes(s)));
+    affected.forEach((r) => (r.purchaseOrders = []));
+    if (remote()) await Promise.all(affected.map((r) => remoteRules.update(r.id, r)));
+    persist();
+    return delay(tree().all);
   },
 
   async moveStockType(id, direction) {

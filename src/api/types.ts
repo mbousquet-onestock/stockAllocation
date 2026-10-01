@@ -34,6 +34,11 @@ export interface StockAllocationApi {
   deleteStockType(id: string): Promise<void>;
   /** Moves a stock type one step up (-1) or down (+1) among its siblings. */
   moveStockType(id: string, direction: -1 | 1): Promise<void>;
+  /**
+   * Replaces the whole stock type configuration (main types and groups) and saves it for the site.
+   * Refused if a removed type is used by a rule (or holds demo stock).
+   */
+  saveStockTypes(types: StockType[]): Promise<StockType[]>;
 
   // --- Segmentation rules
   listRules(query: RuleQuery): Promise<RulePage>;
