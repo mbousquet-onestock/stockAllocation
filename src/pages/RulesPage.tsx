@@ -157,16 +157,11 @@ export function RulesPage() {
         </button>
       </div>
 
-      <p className="muted small hint">
-        {getDbConfig().mode !== 'remote' && (
-          <>
-            <span className="badge badge--muted">Rules stored in this browser (demo)</span>{' '}
-          </>
-        )}
-        Rules are applied when the stock of an item is updated on a stock type, by priority: the first enabled rule matching the
-        item characteristics, the stock type, the location (and the purchase order for future stock) splits the stock onto the groups
-        of the type, in percentage.
-      </p>
+      {getDbConfig().mode !== 'remote' && (
+        <p className="muted small hint">
+          <span className="badge badge--muted">Rules stored in this browser (demo)</span>
+        </p>
+      )}
 
       {matched && (
         <div className="matched-item">
