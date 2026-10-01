@@ -229,7 +229,6 @@ export function ItemDetailPage() {
       <div className="card page">
         <div className="list-header">
           <strong>Stock lines</strong>
-          {onestock && <span className="badge badge--rule">Stock from OneStock · changes are sent with stock_import</span>}
           <StockLineSearch
             text={lineText}
             onText={(t) => {
