@@ -5,7 +5,7 @@ import { useDataVersion } from '../components/DataVersion';
 import { CloseIcon, DownloadIcon } from '../components/Icons';
 import { Checkbox, ItemIdentity, Pagination, QtyBadge, SortHeader, Spinner } from '../components/ui';
 import { useStockTypes } from '../components/StockTypes';
-import { refreshAllStock, stockReadAt, useOnestockStock } from '../api/onestock';
+import { refreshAllStock, useOnestockStock } from '../api/onestock';
 import { ApplyRulesOnestockModal } from '../features/ApplyRulesOnestockModal';
 import { ItemSearch } from '../features/ItemSearch';
 import { RuleEditorModal } from '../features/RuleEditorModal';
@@ -147,10 +147,8 @@ export function ItemListPage() {
             </button>
           </span>
         )}
-        {!sort && <span className="muted small">Items with stock first</span>}
         {onestockStock && list.data && (
           <span className="muted small">
-            · Stock read from OneStock{stockReadAt() ? ` at ${new Date(stockReadAt()!).toLocaleTimeString('fr-FR')}` : ''} ·{' '}
             <button
               type="button"
               className="link"

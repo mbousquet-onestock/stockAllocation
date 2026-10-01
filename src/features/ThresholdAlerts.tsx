@@ -55,11 +55,13 @@ export function ThresholdAlerts({
     <section className="alerts">
       <div className="alerts__header">
         <strong>Alerts</strong>
-        <span className="muted small">
-          Items with stock below the alert threshold
-          {limited ? ` (first ${limited} items checked)` : ''}
-          {selected ? ' · click the tile again to show every item' : ''}
-        </span>
+        {(limited || selected) && (
+          <span className="muted small">
+            {limited ? `First ${limited} items checked` : ''}
+            {limited && selected ? ' · ' : ''}
+            {selected ? 'click the tile again to show every item' : ''}
+          </span>
+        )}
         {loading && <Spinner />}
         {error && <span className="text-error small">{error.message}</span>}
       </div>
