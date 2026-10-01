@@ -9,7 +9,6 @@ import { useToast } from '../components/Toast';
 import { Checkbox, Spinner } from '../components/ui';
 import type { StockType } from '../types';
 
-const CODE = /^[A-Za-z0-9_-]+$/;
 let seq = 0;
 const newId = () => `st-${Date.now()}-${++seq}`;
 const byPosition = (a: StockType, b: StockType) => a.position - b.position;
@@ -75,13 +74,11 @@ export function StockTypesSettings() {
         const code = t.code.trim();
         const p = !code
           ? 'Code required'
-          : !CODE.test(code)
-            ? 'Letters, digits, "_" and "-" only'
-            : (count.get(code.toLowerCase()) ?? 0) > 1
-              ? 'Code used twice'
-              : !t.label.trim()
-                ? 'Label required'
-                : '';
+          : (count.get(code.toLowerCase()) ?? 0) > 1
+            ? 'Code used twice'
+            : !t.label.trim()
+              ? 'Label required'
+              : '';
         return [t.id, p];
       }),
     );

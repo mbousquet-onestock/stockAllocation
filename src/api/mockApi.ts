@@ -251,7 +251,8 @@ function renumberRules() {
 
 function validateStockType(input: StockTypeInput, id?: string) {
   const code = input.code.trim();
-  if (!/^[A-Za-z0-9_-]+$/.test(code)) throw new Error('The code can only contain letters, digits, "_" and "-"');
+  // Free text (e.g. "Brand Site"), as written in OneStock.
+  if (!code) throw new Error('The code is required');
   if (!input.label.trim()) throw new Error('The label is required');
   if (db.stockTypes.some((t) => t.id !== id && t.code.toLowerCase() === code.toLowerCase()))
     throw new Error(`The code "${code}" is already used`);
@@ -349,7 +350,7 @@ export const mockApi: StockAllocationApi = {
     if (!mains.length) return fail('At least one main stock type is required');
     const seen = new Map<string, string>();
     for (const t of next) {
-      if (!/^[A-Za-z0-9_-]+$/.test(t.code)) return fail(`Invalid code "${t.code}": only letters, digits, "_" and "-"`);
+      if (!t.code) return fail('A stock type has no code');
       if (!t.label) return fail(`The label of ${t.code} is required`);
       const k = t.code.toLowerCase();
       if (seen.has(k)) return fail(`The code "${t.code}" is used twice`);
