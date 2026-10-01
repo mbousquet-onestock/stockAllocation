@@ -151,6 +151,8 @@ export interface ItemQuery {
   warningType?: string;
   /** Only items matched by this rule's criteria. */
   ruleId?: string;
+  /** Only these items (e.g. the items of a threshold alert tile). */
+  itemIds?: string[];
   sort?: Sort<ItemSortKey>;
   page: number; // 0-based
   pageSize: number;

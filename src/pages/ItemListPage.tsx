@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { useDataVersion } from '../components/DataVersion';
-import { CloseIcon, DownloadIcon, WarningIcon } from '../components/Icons';
+import { CloseIcon, DownloadIcon } from '../components/Icons';
 import { Checkbox, ItemIdentity, Pagination, QtyBadge, SortHeader, Spinner } from '../components/ui';
 import { useStockTypes } from '../components/StockTypes';
 import { refreshAllStock, stockReadAt, useOnestockStock } from '../api/onestock';
@@ -10,7 +10,7 @@ import { ApplyRulesOnestockModal } from '../features/ApplyRulesOnestockModal';
 import { ItemSearch } from '../features/ItemSearch';
 import { RuleEditorModal } from '../features/RuleEditorModal';
 import { StockImportModal } from '../features/StockImportModal';
-import { ThresholdAlerts } from '../features/ThresholdAlerts';
+import { alertItemIds, ThresholdAlerts } from '../features/ThresholdAlerts';
 import type { Item, ItemSortKey, Sort } from '../types';
 import { plural } from '../utils/format';
 import { useAsync, useDebounced } from '../utils/useAsync';
@@ -23,6 +23,8 @@ export function ItemListPage() {
   const page = Number(params.get('page') ?? 0);
   const pageSize = Number(params.get('size') ?? 25);
   const warningType = params.get('warning') ?? undefined;
+  /** Selected alert tile: 'all' or a group stock type id. */
+  const alertTile = params.get('alert') ?? undefined;
   const tree = useStockTypes();
   const segments = tree.ordered;
   const ruleId = params.get('rule') ?? undefined;
@@ -47,12 +49,17 @@ export function ItemListPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch]);
 
+  const alerts = useAsync(() => api.getThresholdAlerts(), [version]);
+  // Alert tile selected: only its items (once the alerts are known).
+  const alertIds = alertTile && alerts.data ? alertItemIds(alerts.data.alerts, alertTile) : undefined;
   const list = useAsync(
-    () => api.listItems({ search, page, pageSize, sort, warningType, ruleId }),
-    [search, page, pageSize, sortParam, warningType, ruleId, version],
+    () =>
+      alertTile && !alertIds
+        ? new Promise<never>(() => undefined)
+        : api.listItems({ search, page, pageSize, sort, warningType, ruleId, itemIds: alertIds }),
+    [search, page, pageSize, sortParam, warningType, ruleId, version, alertTile, alertIds?.join(',')],
   );
   const rule = useAsync(() => (ruleId ? api.getRule(ruleId) : Promise.resolve(undefined)), [ruleId, version]);
-  const warnings = useAsync(() => api.getWarningSummary(), [version]);
   // Warning chips are computed on the local stock: hidden when the stock comes from OneStock.
   const onestockStock = useOnestockStock();
 
@@ -105,29 +112,23 @@ export function ItemListPage() {
         </button>
       </div>
 
-      {!search && !ruleId && !warningType && page === 0 && <ThresholdAlerts />}
+      <ThresholdAlerts
+        alerts={alerts.data?.alerts}
+        loading={alerts.loading}
+        error={alerts.error}
+        limited={alerts.data?.limited ? alerts.data.checkedItems : undefined}
+        selected={alertTile}
+        onSelect={(tile) => update({ alert: tile, page: undefined })}
+      />
 
-      {(ruleId || (!onestockStock && (warnings.data?.length ?? 0) > 0)) && (
+      {ruleId && (
         <div className="chips">
-          {ruleId && (
-            <span className="chip chip--selected">
-              Matched by rule: {rule.data?.name ?? '…'}
-              <button type="button" onClick={() => update({ rule: undefined, page: undefined })} aria-label="Remove rule filter">
-                <CloseIcon width={12} height={12} />
-              </button>
-            </span>
-          )}
-          {(onestockStock ? [] : warnings.data ?? []).map((w) => (
-            <button
-              type="button"
-              key={w.stockTypeId}
-              className={`chip chip--warning ${warningType === w.stockTypeId ? 'is-active' : ''}`}
-              onClick={() => update({ warning: warningType === w.stockTypeId ? undefined : w.stockTypeId, page: undefined })}
-            >
-              <WarningIcon width={12} height={12} />
-              {plural(w.itemCount, 'item')} - Below threshold – {tree.code(w.stockTypeId)}
+          <span className="chip chip--selected">
+            Matched by rule: {rule.data?.name ?? '…'}
+            <button type="button" onClick={() => update({ rule: undefined, page: undefined })} aria-label="Remove rule filter">
+              <CloseIcon width={12} height={12} />
             </button>
-          ))}
+          </span>
         </div>
       )}
 

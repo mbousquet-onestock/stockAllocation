@@ -37,8 +37,9 @@ npm run build      # typecheck + build de production
   articles concernés, activation, duplication, suppression. Actions : nouvelle règle, **Stock import**, **Apply rules**.
 - **Item allocation** (`/items`) : articles avec du stock en premier (ordre par défaut), recherche avec complétion (nom, SKU), stock de chaque article par segment (colonnes groupées par type principal), alertes
   de seuil, filtre par règle.
-  - Bloc **Below threshold** en tête de liste : une tuile par article ayant un segment sous son seuil (seuils enregistrés
-    ou seuils des règles), tri par plus gros manque, filtre par segment, rouge si le segment est vide ; clic → détail.
+  - Bloc **Alerts** en tête de liste : tuiles compteurs — *Total* (articles ayant au moins un segment sous son seuil) puis
+    une tuile par segment (groupe) avec le nombre d'articles sous son seuil (seuils enregistrés ou seuils des règles).
+    Un clic sur une tuile **filtre la liste des articles** (`?alert=all` ou id du groupe) ; un second clic retire le filtre.
     Avec le stock OneStock, les articles vérifiés sont ceux ayant un seuil enregistré ou visés par une règle à seuils (300 max).
 - **Détail article** (`/items/:id`) : totaux par type de stock, lignes de stock (entrepôt × type × purchase order) avec
   une colonne par groupe (A, B…), le non réparti et une barre de répartition en %, recherche et filtres sur les lignes (texte libre

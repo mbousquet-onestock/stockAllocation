@@ -607,6 +607,12 @@ export const mockApi: StockAllocationApi = {
     await loadCatalog();
     let list = summaries().filter((s) => matchesSearch(query.search ?? '')(s.item));
     if (query.warningType) list = list.filter((s) => s.warnings.includes(query.warningType!));
+    if (query.itemIds) {
+      const ids = new Set(query.itemIds);
+      const known = new Set(list.map((s) => s.item.id));
+      // Items of the alerts that are not in the catalog index (first items only) are listed too.
+      list = [...list.filter((s) => ids.has(s.item.id)), ...[...ids].filter((id) => !known.has(id)).map((id) => summarize(itemOf(id), linesOf(id)))];
+    }
     if (query.ruleId) {
       const rule = rules().find((r) => r.id === query.ruleId);
       list = rule ? list.filter((s) => matchesCriteria(s.item, rule.criteria)) : [];

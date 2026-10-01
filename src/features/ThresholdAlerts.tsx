@@ -1,153 +1,75 @@
-import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { api } from '../api';
-import { useDataVersion } from '../components/DataVersion';
-import { WarningIcon } from '../components/Icons';
 import { useStockTypes } from '../components/StockTypes';
-import { ItemThumb, Spinner } from '../components/ui';
+import { Spinner } from '../components/ui';
 import type { ThresholdAlert } from '../types';
-import { plural } from '../utils/format';
-import { useAsync } from '../utils/useAsync';
 
-const COLLAPSED_KEY = 'stock-allocation:alerts-collapsed';
-const FIRST_TILES = 8;
-const LINES_PER_TILE = 3;
+export const ALL_ALERTS = 'all';
 
-const readCollapsed = () => {
-  try {
-    return localStorage.getItem(COLLAPSED_KEY) === '1';
-  } catch {
-    return false;
-  }
-};
+/** Items of an alert tile: every item below a threshold, or the items below the threshold of one segment. */
+export function alertItemIds(alerts: ThresholdAlert[], tile: string): string[] {
+  return alerts.filter((a) => tile === ALL_ALERTS || a.lines.some((l) => l.groupId === tile)).map((a) => a.item.id);
+}
 
-/** Item allocation: one tile per item having a segment below its alert threshold, most missing first. */
-export function ThresholdAlerts() {
-  const navigate = useNavigate();
+/**
+ * Item allocation: alert counters. "Total" = items with at least one segment below its threshold, then one tile per
+ * segment (group stock type) with the number of items below its threshold. A click filters the item list.
+ */
+export function ThresholdAlerts({
+  alerts,
+  loading,
+  error,
+  limited,
+  selected,
+  onSelect,
+}: {
+  alerts: ThresholdAlert[] | undefined;
+  loading: boolean;
+  error?: Error;
+  limited?: number;
+  selected?: string;
+  onSelect: (tile: string | undefined) => void;
+}) {
   const tree = useStockTypes();
-  const { version } = useDataVersion();
-  const data = useAsync(() => api.getThresholdAlerts(), [version]);
-  const [collapsed, setCollapsed] = useState(readCollapsed);
-  const [segment, setSegment] = useState<string>();
-  const [showAll, setShowAll] = useState(false);
-
-  const alerts = useMemo(() => {
-    const all = data.data?.alerts ?? [];
-    if (!segment) return all;
-    return all.map((a) => ({ ...a, lines: a.lines.filter((l) => l.groupId === segment) })).filter((a) => a.lines.length);
-  }, [data.data, segment]);
-  const segments = useMemo(() => {
-    const count = new Map<string, number>();
-    (data.data?.alerts ?? []).forEach((a) => new Set(a.lines.map((l) => l.groupId)).forEach((g) => count.set(g, (count.get(g) ?? 0) + 1)));
-    return tree.ordered.filter((t) => count.has(t.id)).map((t) => ({ id: t.id, code: t.code, items: count.get(t.id)! }));
-  }, [data.data, tree]);
-
-  const toggle = () =>
-    setCollapsed((v) => {
-      try {
-        localStorage.setItem(COLLAPSED_KEY, v ? '0' : '1');
-      } catch {
-        /* ignore */
-      }
-      return !v;
-    });
-
-  if (data.loading && !data.data)
+  const groups = tree.ordered.filter((t) => t.parentId !== null);
+  const count = (tile: string) => (alerts ? alertItemIds(alerts, tile).length : 0);
+  const tile = (id: string, label: string, title: string, kind: 'total' | 'segment') => {
+    const n = count(id);
     return (
-      <div className="alerts alerts--loading">
-        <Spinner /> <span className="muted small">Checking the alert thresholds…</span>
-      </div>
+      <button
+        type="button"
+        key={id}
+        className={`alert-counter alert-counter--${kind} ${n ? 'has-alerts' : ''} ${selected === id ? 'is-selected' : ''}`}
+        onClick={() => onSelect(selected === id ? undefined : id)}
+        title={title}
+        aria-pressed={selected === id}
+      >
+        <span className="alert-counter__label">
+          <span className="alert-counter__dot" />
+          {label}
+        </span>
+        <span className="alert-counter__value">{alerts ? n : '–'}</span>
+      </button>
     );
-  if (data.error) return <div className="alerts muted small">Threshold alerts unavailable: {data.error.message}</div>;
-  const total = data.data?.alerts.length ?? 0;
-  if (!total) return null;
-  const lineCount = (data.data?.alerts ?? []).reduce((s, a) => s + a.lines.length, 0);
-  const shown = showAll ? alerts : alerts.slice(0, FIRST_TILES);
+  };
 
   return (
     <section className="alerts">
       <div className="alerts__header">
-        <button type="button" className="alerts__title" onClick={toggle} aria-expanded={!collapsed}>
-          <WarningIcon width={16} height={16} />
-          <strong>Below threshold</strong>
-          <span className="muted">
-            {plural(total, 'item')} · {plural(lineCount, 'segment')}
-            {data.data?.limited && ` (first ${data.data.checkedItems} items checked)`}
-          </span>
-          <span className="alerts__chevron">{collapsed ? '▸' : '▾'}</span>
-        </button>
-        {!collapsed && segments.length > 1 && (
-          <div className="alerts__filters">
-            <button type="button" className={`chip ${!segment ? 'chip--selected' : ''}`} onClick={() => setSegment(undefined)}>
-              All
-            </button>
-            {segments.map((s) => (
-              <button
-                type="button"
-                key={s.id}
-                className={`chip ${segment === s.id ? 'chip--selected' : ''}`}
-                onClick={() => setSegment(segment === s.id ? undefined : s.id)}
-              >
-                {s.code} <span className="muted">{s.items}</span>
-              </button>
-            ))}
-          </div>
-        )}
+        <strong>Alerts</strong>
+        <span className="muted small">
+          Items with stock below the alert threshold
+          {limited ? ` (first ${limited} items checked)` : ''}
+          {selected ? ' · click the tile again to show every item' : ''}
+        </span>
+        {loading && <Spinner />}
+        {error && <span className="text-error small">{error.message}</span>}
       </div>
-
-      {!collapsed && (
-        <>
-          <div className="alerts__grid">
-            {shown.map((a) => (
-              <AlertTile key={a.item.id} alert={a} onOpen={() => navigate(`/items/${encodeURIComponent(a.item.id)}`)} />
-            ))}
-          </div>
-          {alerts.length > FIRST_TILES && (
-            <button type="button" className="link small" onClick={() => setShowAll((v) => !v)}>
-              {showAll ? 'Show less' : `Show all ${plural(alerts.length, 'item')}`}
-            </button>
-          )}
-        </>
-      )}
-    </section>
-  );
-}
-
-function AlertTile({ alert, onOpen }: { alert: ThresholdAlert; onOpen: () => void }) {
-  const tree = useStockTypes();
-  const empty = alert.lines.some((l) => l.quantity === 0);
-  return (
-    <button type="button" className={`alert-tile ${empty ? 'is-empty' : ''}`} onClick={onOpen} title="Open the item allocation">
-      <div className="alert-tile__head">
-        <ItemThumb item={alert.item} size={36} />
-        <div className="alert-tile__name">
-          <div className="alert-tile__title">{alert.item.name}</div>
-          <div className="muted small alert-tile__sku">{alert.item.sku}</div>
-        </div>
-        <span className="alert-tile__count">{alert.lines.length}</span>
-      </div>
-      <ul className="alert-tile__lines">
-        {alert.lines.slice(0, LINES_PER_TILE).map((l, i) => {
-          const pct = l.threshold ? Math.min(100, (l.quantity / l.threshold) * 100) : 0;
-          return (
-            <li key={i}>
-              <div className="alert-tile__line">
-                <span className="alert-tile__where">
-                  <code>{tree.code(l.groupId)}</code> {l.location.name}
-                  {l.purchaseOrder && <span className="muted"> · {l.purchaseOrder}</span>}
-                </span>
-                <span className={`alert-tile__qty ${l.quantity === 0 ? 'is-empty' : ''}`}>
-                  {l.quantity} <span className="muted">/ {l.threshold}</span>
-                </span>
-              </div>
-              <div className="alert-tile__bar">
-                <span style={{ width: `${pct}%` }} className={l.quantity === 0 ? 'is-empty' : ''} />
-              </div>
-            </li>
-          );
+      <div className="alerts__counters">
+        {tile(ALL_ALERTS, 'Total', 'Items with at least one segment below its threshold', 'total')}
+        {groups.map((g) => {
+          const main = g.parentId ? tree.byId(g.parentId) : undefined;
+          return tile(g.id, g.code, `${main?.label ?? ''} › ${g.label}: items below the threshold of this segment`, 'segment');
         })}
-      </ul>
-      {alert.lines.length > LINES_PER_TILE && <div className="muted small">+ {plural(alert.lines.length - LINES_PER_TILE, 'other segment')}</div>}
-    </button>
+      </div>
+    </section>
   );
 }
