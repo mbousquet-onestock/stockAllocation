@@ -56,7 +56,6 @@ export function ApplyRulesOnestockModal({ itemIds, onClose, onDone }: { itemIds?
       width={1000}
       footer={
         <>
-          <span className="footer-hint muted small">The stock variations of each type are sent with an incremental PATCH stock_import.</span>
           <button type="button" className="btn btn--secondary" onClick={onClose}>
             Cancel
           </button>
