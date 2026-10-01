@@ -42,6 +42,13 @@ export async function loadThresholds(itemIds: string[]): Promise<Map<string, num
   return map;
 }
 
+/** Items having at least one saved threshold (candidates for the threshold alerts). */
+export async function itemsWithThresholds(): Promise<string[]> {
+  if (!shared()) return [...new Set(Object.entries(localAll()).filter(([, v]) => v !== null).map(([k]) => k.split('|')[0]))];
+  const { thresholds } = await remoteRules.allThresholds();
+  return [...new Set(thresholds.map((t) => t.item_id))];
+}
+
 /** Applies the saved thresholds to the lines (they replace the thresholds of the rules). */
 export function applyThresholds(lines: StockLine[], saved: Map<string, number | null>) {
   lines.forEach((l) =>

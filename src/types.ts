@@ -156,6 +156,26 @@ export interface ItemQuery {
   pageSize: number;
 }
 
+/** A segment of a stock line below its alert threshold. */
+export interface ThresholdAlertLine {
+  location: StockLocation;
+  /** Main stock type of the line. */
+  stockTypeId: string;
+  /** Group (segment) below its threshold. */
+  groupId: string;
+  purchaseOrder: string | null;
+  quantity: number;
+  threshold: number;
+}
+
+/** Item with at least one segment below its threshold (Item allocation tiles). */
+export interface ThresholdAlert {
+  item: Item;
+  lines: ThresholdAlertLine[];
+  /** Largest missing quantity (threshold − quantity) of the item: alerts are sorted by it. */
+  missing: number;
+}
+
 export interface WarningSummary {
   stockTypeId: string;
   itemCount: number;

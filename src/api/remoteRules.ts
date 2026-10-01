@@ -130,6 +130,7 @@ export const remoteRules = {
   /** Alert thresholds of the stock lines of these items (api/thresholds). */
   getThresholds: (itemIds: string[]) =>
     call<{ thresholds: ThresholdEntry[] }>(`/thresholds?item_ids=${encodeURIComponent(itemIds.join(','))}`),
+  allThresholds: () => call<{ thresholds: ThresholdEntry[] }>('/thresholds?all=1'),
   saveThresholds: (thresholds: ThresholdEntry[]) => call<{ ok: boolean; saved: number }>('/thresholds', json('PUT', { thresholds })),
   /** Server side stock import with the segmentation rules (api/stock-import). */
   stockImport: (body: Record<string, unknown>) => call<StockImportAnswer>('/stock-import', json('POST', body)),

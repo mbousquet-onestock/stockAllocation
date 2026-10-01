@@ -17,6 +17,7 @@ import type {
   StockLocation,
   StockType,
   StockTypeInput,
+  ThresholdAlert,
   WarningSummary,
 } from '../types';
 
@@ -62,6 +63,8 @@ export interface StockAllocationApi {
   importStock(rows: StockImportRow[]): Promise<StockImportResult>;
   listItems(query: ItemQuery): Promise<Page<ItemSummary>>;
   getWarningSummary(): Promise<WarningSummary[]>;
+  /** Items with a segment below its threshold (saved thresholds, or thresholds of the rules), most missing first. */
+  getThresholdAlerts(): Promise<{ alerts: ThresholdAlert[]; checkedItems: number; limited: boolean }>;
   getItemDetail(itemId: string): Promise<ItemDetail>;
   listLocations(): Promise<StockLocation[]>;
   /** OneStock stock: lines the rules would re-segment (all items with stock when itemIds is omitted). */

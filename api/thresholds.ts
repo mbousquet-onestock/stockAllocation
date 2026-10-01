@@ -3,7 +3,7 @@ import { body, HttpError, param, route, siteOf, sql } from './_lib/db.js';
 /**
  * Alert thresholds of the stock lines, per site (Item allocation → edit a stock line). OneStock does not store them:
  * they are kept here and read back when the items are displayed.
- * GET ?item_ids=a,b,c → thresholds of these items · PUT { thresholds: [...] } → upsert.
+ * GET ?item_ids=a,b,c → thresholds of these items (?all=1: every threshold set) · PUT { thresholds: [...] } → upsert.
  * stock_type is the id of the group stock type (Settings → Stock types); threshold null = no threshold.
  */
 interface ThresholdInput {
@@ -22,12 +22,18 @@ type Row = { item_id: string; endpoint_id: string; stock_type: string; purchase_
 export default route({
   GET: async (req) => {
     const site = siteOf(req);
+    const all = param(req, 'all') === '1';
     const ids = [...new Set(param(req, 'item_ids').split(',').map((s) => s.trim()).filter(Boolean))];
     if (ids.length > MAX_ITEMS) throw new HttpError(400, `At most ${MAX_ITEMS} item ids`);
-    if (!ids.length) return { thresholds: [] };
-    const rows = await sql()<Row[]>`
-      select item_id, endpoint_id, stock_type, purchase_order, threshold, updated_at from stock_thresholds
-      where site_id = ${site} and item_id = any(${ids})`;
+    if (!ids.length && !all) return { thresholds: [] };
+    // all=1: every threshold of the site (alerts of Item allocation).
+    const rows = all
+      ? await sql()<Row[]>`
+          select item_id, endpoint_id, stock_type, purchase_order, threshold, updated_at from stock_thresholds
+          where site_id = ${site} and threshold is not null order by updated_at desc limit ${MAX_ROWS}`
+      : await sql()<Row[]>`
+          select item_id, endpoint_id, stock_type, purchase_order, threshold, updated_at from stock_thresholds
+          where site_id = ${site} and item_id = any(${ids})`;
     return {
       thresholds: rows.map((r) => ({
         item_id: r.item_id,

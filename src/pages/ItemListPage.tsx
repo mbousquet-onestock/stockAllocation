@@ -10,6 +10,7 @@ import { ApplyRulesOnestockModal } from '../features/ApplyRulesOnestockModal';
 import { ItemSearch } from '../features/ItemSearch';
 import { RuleEditorModal } from '../features/RuleEditorModal';
 import { StockImportModal } from '../features/StockImportModal';
+import { ThresholdAlerts } from '../features/ThresholdAlerts';
 import type { Item, ItemSortKey, Sort } from '../types';
 import { plural } from '../utils/format';
 import { useAsync, useDebounced } from '../utils/useAsync';
@@ -103,6 +104,8 @@ export function ItemListPage() {
           <DownloadIcon /> Stock import
         </button>
       </div>
+
+      {!search && !ruleId && !warningType && page === 0 && <ThresholdAlerts />}
 
       {(ruleId || (!onestockStock && (warnings.data?.length ?? 0) > 0)) && (
         <div className="chips">

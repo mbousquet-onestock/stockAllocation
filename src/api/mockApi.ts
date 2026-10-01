@@ -14,8 +14,10 @@ import type {
   StockLine,
   StockType,
   StockTypeInput,
+  ThresholdAlert,
+  ThresholdAlertLine,
 } from '../types';
-import { applyRuleToLine, splitSum, summarize, toRow, unsplit } from '../utils/allocation';
+import { applyRuleToLine, isBelowThreshold, splitSum, summarize, toRow, unsplit } from '../utils/allocation';
 import { appliesToStockType, byPriority, effectiveRule, matchesCriteria, normalizeText as normalize } from '../utils/rules';
 import { StockTypeTree } from '../utils/stockTypes';
 import { getDbConfig } from './dbConfig';
@@ -38,7 +40,10 @@ import {
 } from './onestock';
 import { lineDeltaRecords, recordsToLines } from '../utils/onestockStock';
 import { remoteRules } from './remoteRules';
-import { applyThresholds, loadThresholds, saveLineThresholds } from './thresholds';
+import { applyThresholds, itemsWithThresholds, loadThresholds, saveLineThresholds } from './thresholds';
+
+/** Items checked at most for the threshold alerts (OneStock stock is read for each of them). */
+const MAX_ALERT_ITEMS = 300;
 import { buildRules, buildStockLines, buildStockTypes, ITEMS, LOCATIONS, newLine } from './mockData';
 import type { StockAllocationApi } from './types';
 
@@ -637,6 +642,43 @@ export const mockApi: StockAllocationApi = {
         .ordered.map((t) => ({ stockTypeId: t.id, itemCount: all.filter((s) => s.warnings.includes(t.id)).length }))
         .filter((w) => w.itemCount > 0),
     );
+  },
+
+  async getThresholdAlerts() {
+    await Promise.all([syncRules(), loadCatalog()]);
+    const t = tree();
+    // Candidates: items with saved thresholds, and items matched by an enabled rule that has thresholds.
+    let ids: string[];
+    if (useOnestockStock()) {
+      const saved = await itemsWithThresholds().catch(() => [] as string[]);
+      const ruled = rules().filter((r) => r.enabled && Object.values(r.thresholds).some((v) => v !== null && v !== undefined));
+      const matched = ruled.length ? catalog().filter((i) => ruled.some((r) => matchesCriteria(i, r.criteria))).map((i) => i.id) : [];
+      ids = [...new Set([...saved, ...matched])];
+    } else ids = [...new Set(db.lines.map((l) => l.itemId))];
+    const limited = ids.length > MAX_ALERT_ITEMS;
+    ids = ids.slice(0, MAX_ALERT_ITEMS);
+    const [stock, locations, items] = await Promise.all([
+      stockOf(ids),
+      allLocations(),
+      useOnestockItems() ? fetchItemDetails(ids) : Promise.resolve(ids.map(itemOf)),
+    ]);
+    const byItem = new Map<string, ThresholdAlertLine[]>();
+    stock.lines.forEach((l) =>
+      Object.entries(l.split).forEach(([g, a]) => {
+        if (!isBelowThreshold(a.quantity, a.threshold) || !t.byId(g)) return;
+        const location = locations.find((x) => x.id === l.locationId) ?? { id: l.locationId, code: l.locationId, name: l.locationId };
+        const list = byItem.get(l.itemId) ?? [];
+        list.push({ location, stockTypeId: l.stockTypeId, groupId: g, purchaseOrder: l.purchaseOrder, quantity: a.quantity, threshold: a.threshold! });
+        byItem.set(l.itemId, list);
+      }),
+    );
+    const alerts: ThresholdAlert[] = [...byItem.entries()].map(([id, lines]) => ({
+      item: items.find((i) => i.id === id) ?? itemOf(id),
+      lines: lines.sort((a, b) => b.threshold - b.quantity - (a.threshold - a.quantity)),
+      missing: Math.max(...lines.map((x) => x.threshold - x.quantity)),
+    }));
+    alerts.sort((a, b) => b.missing - a.missing || a.item.name.localeCompare(b.item.name));
+    return delay({ alerts, checkedItems: ids.length, limited });
   },
 
   async getItemDetail(itemId) {
