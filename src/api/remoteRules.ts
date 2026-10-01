@@ -25,6 +25,16 @@ export interface DbHealth {
   apiKeyRequired?: boolean;
 }
 
+/** Alert threshold of a group of a stock line (null = no threshold). */
+export interface ThresholdEntry {
+  item_id: string;
+  endpoint_id: string;
+  /** Id of the group stock type. */
+  stock_type: string;
+  purchase_order: string | null;
+  threshold: number | null;
+}
+
 /** Answer of POST /api/stock-import. */
 export interface StockImportAnswer {
   site_id: string;
@@ -117,6 +127,10 @@ export const remoteRules = {
   replaceAll: (rules: SegmentationRule[], config?: DbConfig) => call<SegmentationRule[]>('/rules', json('PUT', { rules }), config),
   /** Settings shared by the users of the site (stock types, OneStock options — no secrets). */
   getSiteSettings: () => call<{ siteId: string; settings: SiteSettings | null; hasToken: boolean; updatedAt: string | null }>('/settings'),
+  /** Alert thresholds of the stock lines of these items (api/thresholds). */
+  getThresholds: (itemIds: string[]) =>
+    call<{ thresholds: ThresholdEntry[] }>(`/thresholds?item_ids=${encodeURIComponent(itemIds.join(','))}`),
+  saveThresholds: (thresholds: ThresholdEntry[]) => call<{ ok: boolean; saved: number }>('/thresholds', json('PUT', { thresholds })),
   /** Server side stock import with the segmentation rules (api/stock-import). */
   stockImport: (body: Record<string, unknown>) => call<StockImportAnswer>('/stock-import', json('POST', body)),
   saveSiteSettings: (patch: SiteSettings) => call<{ siteId: string; settings: SiteSettings }>('/settings', json('PUT', patch)),

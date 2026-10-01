@@ -73,6 +73,19 @@ export async function ensureSchema() {
     )`;
   // Secrets of the site (OneStock token): never returned to the browser, read by the OneStock proxy only.
   await sql()`alter table site_settings add column if not exists secrets jsonb not null default '{}'::jsonb`;
+  // Alert thresholds of the stock lines (OneStock has none): by item × endpoint × group stock type × purchase order.
+  // threshold null = no threshold on purpose (the threshold of the rule is not used).
+  await sql()`
+    create table if not exists stock_thresholds (
+      site_id text not null,
+      item_id text not null,
+      endpoint_id text not null,
+      stock_type text not null,
+      purchase_order text not null default '',
+      threshold integer,
+      updated_at timestamptz not null default now(),
+      primary key (site_id, item_id, endpoint_id, stock_type, purchase_order)
+    )`;
 }
 
 let schemaChecked = false;

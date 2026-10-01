@@ -38,6 +38,7 @@ import {
 } from './onestock';
 import { lineDeltaRecords, recordsToLines } from '../utils/onestockStock';
 import { remoteRules } from './remoteRules';
+import { applyThresholds, loadThresholds, saveLineThresholds } from './thresholds';
 import { buildRules, buildStockLines, buildStockTypes, ITEMS, LOCATIONS, newLine } from './mockData';
 import type { StockAllocationApi } from './types';
 
@@ -157,15 +158,24 @@ const summaries = (): ItemSummary[] => catalog().map((item) => summarize(item, l
 
 /**
  * Stock of some items: the OneStock stock (stock_export) when configured, else the local stock lines.
- * OneStock lines get the thresholds of the rule that would apply to them, so that warnings stay meaningful.
+ * OneStock lines get the thresholds saved for them (database, Item allocation → edit), else the thresholds of the rule
+ * that would apply to them, so that warnings stay meaningful.
  */
 async function stockOf(itemIds: string[]): Promise<{ lines: StockLine[]; unknownTypes: string[]; onestock: boolean }> {
   if (!useOnestockStock()) return { lines: db.lines.filter((l) => itemIds.includes(l.itemId)), unknownTypes: [], onestock: false };
-  const { lines, unknownTypes } = recordsToLines(await fetchStock(itemIds), tree());
+  const [records, saved] = await Promise.all([
+    fetchStock(itemIds),
+    loadThresholds(itemIds).catch((e: Error) => {
+      console.warn('Thresholds not read from the database:', e.message);
+      return new Map<string, number | null>();
+    }),
+  ]);
+  const { lines, unknownTypes } = recordsToLines(records, tree());
   lines.forEach((l) => {
     const rule = effectiveRule(rules(), itemOf(l.itemId), l);
     if (rule) Object.entries(l.split).forEach(([g, a]) => (a.threshold = rule.thresholds[g] ?? null));
   });
+  applyThresholds(lines, saved);
   return { lines, unknownTypes, onestock: true };
 }
 
@@ -696,6 +706,8 @@ export const mockApi: StockAllocationApi = {
       if (!before) return fail('Stock line not found in OneStock: refresh the page');
       const records = lineDeltaRecords(before, line, tree());
       if (records.length) await pushStock(records);
+      // Thresholds are not stored by OneStock: saved for the site.
+      await saveLineThresholds(line);
       return line;
     }
     const idx = db.lines.findIndex((l) => l.id === line.id);
