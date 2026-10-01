@@ -274,7 +274,7 @@ export function ItemDetailPage() {
                 </th>
                 {suffixes.map((sfx) => (
                   <th key={sfx} className="col-num col-group-cell" title={`Quantity on the group ${sfx} of the stock type`}>
-                    Group {sfx}
+                    {sfx}
                   </th>
                 ))}
                 <th className="col-num" title="Quantity left on the main stock type">
