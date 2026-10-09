@@ -217,6 +217,14 @@ Réponse : compteurs (`lines`, `changed`, `unchanged`, `without_rule`, `blocked`
   en base, exemple `curl` et **testeur** (simulation `dry_run` par défaut, envoi réel après confirmation, page suivante
   du catalogue).
 
+## Design
+
+Couleurs, typographie et composants suivent le **OneStock Design System** (`@onestock-public/design-system`) : tokens
+`--os-*` en tête de `src/styles.css` (teal `#24bdb0`, textes `#333`, bordures `#e5e5e5`, fond `#fafafa`, statuts
+rouge / orange / vert / bleu, en-tête `dark-blue #18244a`), Roboto, rayon 5 px, boutons 34 px, champs 36 px.
+Les fenêtres restent dans l'écran (seul leur contenu défile sur un très petit écran) ; l'éditeur de règle est en deux
+colonnes (cible de la règle à gauche, répartition en tableau compact à droite) pour être lisible sans défilement.
+
 ## Architecture
 
 ```
