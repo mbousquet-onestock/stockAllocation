@@ -43,7 +43,7 @@ import { remoteRules } from './remoteRules';
 import { applyThresholds, itemsWithThresholds, loadThresholds, saveLineThresholds } from './thresholds';
 
 /** Items checked at most for the threshold alerts (OneStock stock is read for each of them). */
-const MAX_ALERT_ITEMS = 300;
+const MAX_ALERT_ITEMS = 1000;
 import { buildRules, buildStockLines, buildStockTypes, ITEMS, LOCATIONS, newLine } from './mockData';
 import type { StockAllocationApi } from './types';
 
@@ -653,12 +653,17 @@ export const mockApi: StockAllocationApi = {
   async getThresholdAlerts() {
     await Promise.all([syncRules(), loadCatalog()]);
     const t = tree();
-    // Candidates: items with saved thresholds, and items matched by an enabled rule that has thresholds.
+    // Candidates: items with thresholds saved on their lines, and items holding stock in OneStock that are matched by an
+    // enabled rule with thresholds (items without stock have no stock line to alert on).
     let ids: string[];
     if (useOnestockStock()) {
       const saved = await itemsWithThresholds().catch(() => [] as string[]);
       const ruled = rules().filter((r) => r.enabled && Object.values(r.thresholds).some((v) => v !== null && v !== undefined));
-      const matched = ruled.length ? catalog().filter((i) => ruled.some((r) => matchesCriteria(i, r.criteria))).map((i) => i.id) : [];
+      let matched: string[] = [];
+      if (ruled.length) {
+        const totals = await fetchStockTotals(catalog().map((i) => i.id)).catch(() => new Map<string, number>());
+        matched = [...totals.keys()].filter((id) => ruled.some((r) => matchesCriteria(itemOf(id), r.criteria)));
+      }
       ids = [...new Set([...saved, ...matched])];
     } else ids = [...new Set(db.lines.map((l) => l.itemId))];
     const limited = ids.length > MAX_ALERT_ITEMS;

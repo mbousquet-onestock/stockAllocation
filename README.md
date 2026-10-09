@@ -40,7 +40,7 @@ npm run build      # typecheck + build de production
   - Bloc **Alerts** en tête de liste : tuiles compteurs — *Total* (articles ayant au moins un segment sous son seuil) puis
     une tuile par segment (groupe) avec le nombre d'articles sous son seuil (seuils enregistrés ou seuils des règles).
     Un clic sur une tuile **filtre la liste des articles** (`?alert=all` ou id du groupe) ; un second clic retire le filtre.
-    Avec le stock OneStock, les articles vérifiés sont ceux ayant un seuil enregistré ou visés par une règle à seuils (300 max).
+    Les compteurs comptent les **stocks en alerte** (segment × emplacement × purchase order). Avec le stock OneStock, les articles vérifiés sont ceux ayant un seuil enregistré, et ceux ayant du stock et visés par une règle à seuils (1 000 max).
 - **Détail article** (`/items/:id`) : totaux par type de stock, lignes de stock (entrepôt × type × purchase order) avec
   une colonne par groupe (A, B…), le non réparti et une barre de répartition en %, recherche et filtres sur les lignes (texte libre
   sur PO / point de stock / type, suggestions de PO avec quantité et ETA, de points de stock et « sans purchase order »,
