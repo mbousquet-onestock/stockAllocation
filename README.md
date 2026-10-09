@@ -33,7 +33,7 @@ npm run build      # typecheck + build de production
 
 - **Segmentation rules** (`/`) : recherche des règles par caractéristique, type de stock ou purchase order. Une recherche
   par SKU liste toutes les règles qui s'appliquent à l'article et met en évidence celles utilisées par son stock.
-  Tableau : priorité (réordonnable), critères, type de stock + purchase orders, entrepôts, répartition en %, période,
+  Tableau : priorité (réordonnable par glisser-déposer ou flèches), critères, type de stock + purchase orders, entrepôts, répartition en %, période,
   articles concernés, activation, duplication, suppression. Actions : nouvelle règle, **Stock import**, **Apply rules**.
 - **Item allocation** (`/items`) : articles avec du stock en premier (ordre par défaut), recherche avec complétion (nom, SKU), stock de chaque article par segment (colonnes groupées par type principal), alertes
   de seuil, filtre par règle.

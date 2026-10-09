@@ -6,7 +6,7 @@ import { categoryLabel, skuLabel, useOnestockStock } from '../api/onestock';
 import { ApplyRulesOnestockModal } from '../features/ApplyRulesOnestockModal';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { useDataVersion } from '../components/DataVersion';
-import { ArrowDownIcon, ArrowUpIcon, CopyIcon, DownloadIcon, PlayIcon, TrashIcon } from '../components/Icons';
+import { ArrowDownIcon, ArrowUpIcon, CopyIcon, DownloadIcon, DragIcon, PlayIcon, TrashIcon } from '../components/Icons';
 import { useToast } from '../components/Toast';
 import { ItemIdentity, Pagination, Spinner } from '../components/ui';
 import { ATTRIBUTES, attributeLabel } from '../config/attributes';
@@ -94,6 +94,14 @@ export function RulesPage() {
   const locations = useAsync(() => api.listLocations(), []);
   const rows = list.data?.data ?? [];
   const matched = list.data?.matchedItem;
+
+  // Drag and drop of the rules to change their priority.
+  const [dragged, setDragged] = useState<string>();
+  const [dropTarget, setDropTarget] = useState<{ id: string; placement: 'before' | 'after' }>();
+  const endDrag = () => {
+    setDragged(undefined);
+    setDropTarget(undefined);
+  };
 
   const run = async (action: () => Promise<unknown>, message?: string) => {
     try {
@@ -211,11 +219,38 @@ export function RulesPage() {
               return (
                 <tr
                   key={rule.id}
-                  className={`is-clickable ${rule.enabled ? '' : 'is-disabled'} ${isEffective ? 'is-highlighted' : ''}`}
+                  className={`is-clickable ${rule.enabled ? '' : 'is-disabled'} ${isEffective ? 'is-highlighted' : ''} ${dragged === rule.id ? 'is-dragged' : ''} ${
+                    dropTarget?.id === rule.id ? `is-drop-${dropTarget.placement}` : ''
+                  }`}
                   onClick={() => setModal({ type: 'edit', rule })}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', rule.id);
+                    setDragged(rule.id);
+                  }}
+                  onDragOver={(e) => {
+                    if (!dragged || dragged === rule.id) return;
+                    e.preventDefault();
+                    const box = e.currentTarget.getBoundingClientRect();
+                    const placement = e.clientY < box.top + box.height / 2 ? 'before' : 'after';
+                    if (dropTarget?.id !== rule.id || dropTarget.placement !== placement) setDropTarget({ id: rule.id, placement });
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const target = dropTarget;
+                    const moved = dragged;
+                    endDrag();
+                    if (moved && target && moved !== target.id)
+                      run(() => api.moveRuleTo(moved, target.id, target.placement), 'Priority updated');
+                  }}
+                  onDragEnd={endDrag}
                 >
                   <td className="col-priority" onClick={(e) => e.stopPropagation()}>
                     <div className="priority">
+                      <span className="drag-handle" title="Drag to change the priority">
+                        <DragIcon />
+                      </span>
                       <span className="priority__num">{rule.priority}</span>
                       <span className="priority__arrows">
                         <button type="button" className="icon-btn icon-btn--sm" disabled={rule.priority === 1} onClick={() => run(() => api.moveRule(rule.id, -1))} aria-label="Move up">

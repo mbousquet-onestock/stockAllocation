@@ -49,6 +49,8 @@ export interface StockAllocationApi {
   deleteRule(ruleId: string): Promise<void>;
   /** Moves a rule one step up (-1) or down (+1) in the priority order. */
   moveRule(ruleId: string, direction: -1 | 1): Promise<void>;
+  /** Drag and drop: moves a rule just before or after another one (priorities renumbered). */
+  moveRuleTo(ruleId: string, targetRuleId: string, placement: 'before' | 'after'): Promise<void>;
   /** Items matched by some criteria (rule editor preview). */
   previewCriteria(rule: Pick<SegmentationRule, 'criteria'>): Promise<RulePreview>;
   /** Existing values of an item characteristic, for criteria suggestions. */

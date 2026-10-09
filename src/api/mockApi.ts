@@ -477,6 +477,25 @@ export const mockApi: StockAllocationApi = {
     return delay(undefined);
   },
 
+  async moveRuleTo(ruleId, targetRuleId, placement) {
+    await syncRules();
+    const list = [...rules()].sort(byPriority);
+    const moved = list.find((r) => r.id === ruleId);
+    if (!moved || ruleId === targetRuleId) return delay(undefined);
+    const rest = list.filter((r) => r.id !== ruleId);
+    const target = rest.findIndex((r) => r.id === targetRuleId);
+    if (target < 0) return delay(undefined);
+    rest.splice(placement === 'before' ? target : target + 1, 0, moved);
+    if (remote()) {
+      await remoteRules.reorder(rest.map((r) => r.id));
+      return;
+    }
+    rest.forEach((r, k) => (r.priority = k + 1));
+    renumberRules();
+    persist();
+    return delay(undefined);
+  },
+
   async moveRule(ruleId, direction) {
     await syncRules();
     const list = [...rules()].sort(byPriority);
