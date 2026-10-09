@@ -149,7 +149,7 @@ export function EditStockLineModal({
                 </span>
               </label>
               <label className="field">
-                <span className="field__label">{g.label} threshold</span>
+                <span className="field__label">{g.label} threshold <span className="muted">(alert when below)</span></span>
                 <span className={`input-group ${!tValid ? 'is-invalid' : ''}`}>
                   <input
                     inputMode="numeric"

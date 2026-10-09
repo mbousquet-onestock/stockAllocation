@@ -474,3 +474,5 @@ main { padding-top: 20px; }
 .split-table { table-layout: fixed; }
 .split-table .input-group { width: 100%; }
 .split-table .input-group input { min-width: 0; }
+.qty-threshold { font-size: 11px; color: var(--muted); line-height: 1.2; white-space: nowrap; }
+.qty-threshold.text-warning { color: var(--warning); }

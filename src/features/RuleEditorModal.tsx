@@ -283,7 +283,7 @@ export function RuleEditorModal({
                 <tr>
                   <th>Segment</th>
                   <th className="split-table__num">Share</th>
-                  <th className="split-table__num">Threshold</th>
+                  <th className="split-table__num" title="Alert when the stock of the segment is below this quantity">Alert below</th>
                 </tr>
               </thead>
               {targeted.map((type) => {

@@ -334,12 +334,18 @@ export function ItemDetailPage() {
                       if (!g) return <td key={sfx} className="col-num col-group-cell muted">—</td>;
                       const q = r.line.split[g.id]?.quantity ?? 0;
                       const warn = r.warnings.includes(g.id);
+                      const threshold = r.line.split[g.id]?.threshold ?? null;
                       return (
-                        <td key={sfx} className="col-num col-group-cell" title={`${g.code}${warn ? ' — below threshold' : ''}`}>
+                        <td
+                          key={sfx}
+                          className="col-num col-group-cell"
+                          title={`${g.code}${threshold !== null ? ` — alert when below ${threshold}` : ' — no alert threshold'}${warn ? ' (below threshold)' : ''}`}
+                        >
                           <span className={`qty ${warn ? 'qty--warning' : q ? '' : 'qty--zero'}`}>
                             {warn && <WarningIcon width={12} height={12} />}
                             {q}
                           </span>
+                          {threshold !== null && <div className={`qty-threshold ${warn ? 'text-warning' : ''}`}>min {threshold}</div>}
                         </td>
                       );
                     })}
