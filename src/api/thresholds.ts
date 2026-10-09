@@ -19,10 +19,10 @@ function localAll(): Record<string, number | null> {
     return {};
   }
 }
-function localSave(values: Record<string, number | null>) {
+function localReplace(values: Record<string, number | null>) {
   try {
     const all = JSON.parse(localStorage.getItem(LOCAL_KEY) ?? '{}') as Record<string, Record<string, number | null>>;
-    all[currentSiteId()] = { ...(all[currentSiteId()] ?? {}), ...values };
+    all[currentSiteId()] = values;
     localStorage.setItem(LOCAL_KEY, JSON.stringify(all));
   } catch {
     /* ignore */
@@ -32,7 +32,7 @@ function localSave(values: Record<string, number | null>) {
 /** Saved thresholds of these items, by line × group key. */
 export async function loadThresholds(itemIds: string[]): Promise<Map<string, number | null>> {
   if (!itemIds.length) return new Map();
-  if (!shared()) return new Map(Object.entries(localAll()));
+  if (!shared()) return new Map(Object.entries(localAll()).filter(([, v]) => v !== null));
   const map = new Map<string, number | null>();
   const ids = [...new Set(itemIds)];
   for (let i = 0; i < ids.length; i += 200) {
@@ -54,21 +54,29 @@ export function applyThresholds(lines: StockLine[], saved: Map<string, number | 
   lines.forEach((l) =>
     Object.entries(l.split).forEach(([group, a]) => {
       const k = key({ item_id: l.itemId, endpoint_id: l.locationId, stock_type: group, purchase_order: l.purchaseOrder });
-      if (saved.has(k)) a.threshold = saved.get(k)!;
+      const v = saved.get(k);
+      if (v !== undefined && v !== null) a.threshold = v;
     }),
   );
 }
 
-/** Saves the thresholds of every group of a line. */
-export async function saveLineThresholds(line: StockLine) {
+/**
+ * Saves the thresholds of a line: only a threshold different from the one of the rule is kept for the line; an empty
+ * threshold, or the threshold of the rule, removes it (the rule applies, and follows its later changes).
+ */
+export async function saveLineThresholds(line: StockLine, ruleThresholds: Record<string, number | null | undefined> = {}) {
   const entries: ThresholdEntry[] = Object.entries(line.split).map(([group, a]) => ({
     item_id: line.itemId,
     endpoint_id: line.locationId,
     stock_type: group,
     purchase_order: line.purchaseOrder,
-    threshold: a.threshold,
+    threshold: a.threshold === null || a.threshold === (ruleThresholds[group] ?? null) ? null : a.threshold,
   }));
   if (!entries.length) return;
   if (shared()) await remoteRules.saveThresholds(entries);
-  else localSave(Object.fromEntries(entries.map((e) => [key(e), e.threshold])));
+  else {
+    const all = localAll();
+    entries.forEach((e) => (e.threshold === null ? delete all[key(e)] : (all[key(e)] = e.threshold)));
+    localReplace(all);
+  }
 }

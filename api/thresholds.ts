@@ -4,7 +4,8 @@ import { body, HttpError, param, route, siteOf, sql } from './_lib/db.js';
  * Alert thresholds of the stock lines, per site (Item allocation → edit a stock line). OneStock does not store them:
  * they are kept here and read back when the items are displayed.
  * GET ?item_ids=a,b,c → thresholds of these items (?all=1: every threshold set) · PUT { thresholds: [...] } → upsert.
- * stock_type is the id of the group stock type (Settings → Stock types); threshold null = no threshold.
+ * stock_type is the id of the group stock type (Settings → Stock types). A threshold replaces the threshold of the rule
+ * for this line; threshold null removes it (the threshold of the rule applies again).
  */
 interface ThresholdInput {
   item_id: string;
@@ -33,7 +34,7 @@ export default route({
           where site_id = ${site} and threshold is not null order by updated_at desc limit ${MAX_ROWS}`
       : await sql()<Row[]>`
           select item_id, endpoint_id, stock_type, purchase_order, threshold, updated_at from stock_thresholds
-          where site_id = ${site} and item_id = any(${ids})`;
+          where site_id = ${site} and item_id = any(${ids}) and threshold is not null`;
     return {
       thresholds: rows.map((r) => ({
         item_id: r.item_id,
@@ -55,7 +56,13 @@ export default route({
         throw new HttpError(400, `thresholds[${i}]: threshold must be a positive integer or null`);
     }
     for (const t of list)
-      await sql()`
+      if (t.threshold === null)
+        await sql()`
+          delete from stock_thresholds
+          where site_id = ${site} and item_id = ${String(t.item_id)} and endpoint_id = ${String(t.endpoint_id)}
+            and stock_type = ${String(t.stock_type)} and purchase_order = ${t.purchase_order ?? ''}`;
+      else
+        await sql()`
         insert into stock_thresholds (site_id, item_id, endpoint_id, stock_type, purchase_order, threshold)
         values (${site}, ${String(t.item_id)}, ${String(t.endpoint_id)}, ${String(t.stock_type)}, ${t.purchase_order ?? ''}, ${t.threshold})
         on conflict (site_id, item_id, endpoint_id, stock_type, purchase_order)

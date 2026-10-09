@@ -698,7 +698,8 @@ export const mockApi: StockAllocationApi = {
     const rows = lines.map((l) => {
       const location = locations.find((x) => x.id === l.locationId) ?? { id: l.locationId, code: l.locationId, name: l.locationId };
       const rule = l.source.type === 'rule' ? ref(rules().find((r) => r.id === (l.source as { ruleId: string }).ruleId)) : undefined;
-      return { ...toRow(location, l), rule, nextRule: ref(effectiveRule(rules(), item, l)) };
+      const next = effectiveRule(rules(), item, l);
+      return { ...toRow(location, l), rule, nextRule: ref(next), ruleThresholds: next?.thresholds };
     });
     const notices = stock.unknownTypes.length
       ? [`Stock types not configured in Settings → Stock types, ignored: ${stock.unknownTypes.join(', ')}`]
@@ -754,8 +755,8 @@ export const mockApi: StockAllocationApi = {
       if (!before) return fail('Stock line not found in OneStock: refresh the page');
       const records = lineDeltaRecords(before, line, tree());
       if (records.length) await pushStock(records);
-      // Thresholds are not stored by OneStock: saved for the site.
-      await saveLineThresholds(line);
+      // Thresholds are not stored by OneStock: saved for the site (only those different from the rule of the line).
+      await saveLineThresholds(line, effectiveRule(rules(), itemOf(line.itemId), line)?.thresholds);
       return line;
     }
     const idx = db.lines.findIndex((l) => l.id === line.id);

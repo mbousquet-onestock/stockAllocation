@@ -74,7 +74,7 @@ export async function ensureSchema() {
   // Secrets of the site (OneStock token): never returned to the browser, read by the OneStock proxy only.
   await sql()`alter table site_settings add column if not exists secrets jsonb not null default '{}'::jsonb`;
   // Alert thresholds of the stock lines (OneStock has none): by item × endpoint × group stock type × purchase order.
-  // threshold null = no threshold on purpose (the threshold of the rule is not used).
+  // A row is a threshold set on the line, replacing the threshold of the rule; no row = threshold of the rule.
   await sql()`
     create table if not exists stock_thresholds (
       site_id text not null,
@@ -86,6 +86,8 @@ export async function ensureSchema() {
       updated_at timestamptz not null default now(),
       primary key (site_id, item_id, endpoint_id, stock_type, purchase_order)
     )`;
+  // Former "no threshold" rows hid the threshold of the rule (alerts lost): removed.
+  await sql()`delete from stock_thresholds where threshold is null`;
 }
 
 let schemaChecked = false;

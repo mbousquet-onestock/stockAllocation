@@ -19,12 +19,15 @@ export function EditStockLineModal({
   item,
   location,
   line,
+  ruleThresholds,
   onClose,
   onSaved,
 }: {
   item: Item;
   location: StockLocation;
   line: StockLine;
+  /** Thresholds of the rule of the line: an empty threshold means this one. */
+  ruleThresholds?: Record<string, number | null>;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -37,7 +40,14 @@ export function EditStockLineModal({
     Object.fromEntries(
       groups.map((g) => [
         g.id,
-        { quantity: String(line.split[g.id]?.quantity ?? 0), threshold: line.split[g.id]?.threshold == null ? '' : String(line.split[g.id]!.threshold) },
+        {
+          quantity: String(line.split[g.id]?.quantity ?? 0),
+          // Threshold of the line only: the threshold of the rule is shown as placeholder.
+          threshold:
+            line.split[g.id]?.threshold == null || line.split[g.id]!.threshold === (ruleThresholds?.[g.id] ?? null)
+              ? ''
+              : String(line.split[g.id]!.threshold),
+        },
       ]),
     ),
   );
@@ -57,7 +67,10 @@ export function EditStockLineModal({
       await api.updateStockLine({
         ...line,
         period,
-        split: Object.fromEntries(groups.map((g) => [g.id, { quantity: toInt(draft[g.id].quantity) ?? 0, threshold: toInt(draft[g.id].threshold) }])),
+        // Empty threshold: the one of the rule.
+        split: Object.fromEntries(
+          groups.map((g) => [g.id, { quantity: toInt(draft[g.id].quantity) ?? 0, threshold: toInt(draft[g.id].threshold) ?? ruleThresholds?.[g.id] ?? null }]),
+        ),
       });
       notify(
         line.source.type === 'onestock'
@@ -119,7 +132,7 @@ export function EditStockLineModal({
           const d = draft[g.id];
           const qValid = isValidInt(d.quantity, false);
           const tValid = isValidInt(d.threshold, true);
-          const warn = qValid && tValid && isBelowThreshold(toInt(d.quantity) ?? 0, toInt(d.threshold));
+          const warn = qValid && tValid && isBelowThreshold(toInt(d.quantity) ?? 0, toInt(d.threshold) ?? ruleThresholds?.[g.id] ?? null);
           return (
             <div className="segment-grid__row" key={g.id}>
               <label className="field">
@@ -138,7 +151,12 @@ export function EditStockLineModal({
               <label className="field">
                 <span className="field__label">{g.label} threshold</span>
                 <span className={`input-group ${!tValid ? 'is-invalid' : ''}`}>
-                  <input inputMode="numeric" value={d.threshold} placeholder="None" onChange={(e) => set(g.id, 'threshold', e.target.value)} />
+                  <input
+                    inputMode="numeric"
+                    value={d.threshold}
+                    placeholder={ruleThresholds?.[g.id] != null ? `Rule: ${ruleThresholds[g.id]}` : 'None'}
+                    onChange={(e) => set(g.id, 'threshold', e.target.value)}
+                  />
                   <button
                     type="button"
                     className="input-group__addon input-group__btn"

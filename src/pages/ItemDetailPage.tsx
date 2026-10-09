@@ -403,6 +403,7 @@ export function ItemDetailPage() {
           item={item}
           location={editing.location}
           line={editing.line}
+          ruleThresholds={editing.ruleThresholds}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);

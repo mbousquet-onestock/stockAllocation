@@ -120,6 +120,8 @@ export interface StockLineRow {
   rule?: { id: string; name: string };
   /** Rule the next stock update of this line would use. */
   nextRule?: { id: string; name: string };
+  /** Thresholds of that rule, by group (used when the line has no threshold of its own). */
+  ruleThresholds?: Record<string, number | null>;
 }
 
 export interface ItemDetail {

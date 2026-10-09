@@ -70,7 +70,7 @@ Sans base de données, tous les paramètres sont propres à chaque navigateur. A
 | Types de stock | table `site_settings` (`stockTypes`) — le premier poste d'un site y dépose les siens |
 | Options OneStock (url, langue, méthode, stock request, options) | table `site_settings` (`onestock`) |
 | Historique des appels API | table `api_calls` (`site_id`) — *Clear* ne purge que le site |
-| Seuils d'alerte des lignes de stock OneStock | table `stock_thresholds` (site × article × endpoint × groupe × purchase order) — saisis dans *Item allocation* (édition d'une ligne), relus à la consultation ; à défaut, seuil de la règle applicable |
+| Seuils d'alerte des lignes de stock OneStock | table `stock_thresholds` (site × article × endpoint × groupe × purchase order) — saisis dans *Item allocation* (édition d'une ligne), relus à la consultation. Seul un seuil **différent de celui de la règle** est gardé pour la ligne ; un champ vide (affiché « Rule: X ») = seuil de la règle applicable, qui suit ses modifications |
 | Token OneStock (option *Store the token in the database*) | table `site_settings` (colonne `secrets`, jamais renvoyée au navigateur : seul le proxy la lit) |
 | Accès à la base (API URL, clé) et **site ID** (+ token si non stocké en base) | navigateur de chaque poste |
 
@@ -109,7 +109,7 @@ Les règles peuvent être stockées dans une base **Postgres (Neon) sur Vercel**
 | GET / POST | `/api/rules` | Liste (par priorité) / création |
 | PUT | `/api/rules` | `{ order: [ids] }` ordre des priorités, ou `{ rules: [...] }` remplacement complet |
 | GET / PUT / DELETE | `/api/rules/:id` | Lecture / modification / suppression |
-| GET / PUT | `/api/thresholds` | Seuils des lignes de stock : `?item_ids=a,b` / `{ thresholds: [{ item_id, endpoint_id, stock_type, purchase_order, threshold }] }` (`threshold: null` = aucun seuil) |
+| GET / PUT | `/api/thresholds` | Seuils des lignes de stock : `?item_ids=a,b` / `{ thresholds: [{ item_id, endpoint_id, stock_type, purchase_order, threshold }] }` (`threshold: null` supprime le seuil de la ligne : celui de la règle s'applique) |
 | GET / PUT | `/api/settings` | Paramètres partagés du site (types de stock, options OneStock ; token en écriture seule) |
 | POST | `/api/stock-import` | Import / re-segmentation du stock OneStock avec les règles du site (voir ci-dessous) |
 | GET / POST / DELETE | `/api/api-calls` | Historique des appels API : lecture (`limit`, `offset`, `target`, `errors`, `q`) / ajout par lots / purge |
