@@ -237,8 +237,6 @@ function validateRule(rule: RuleInput) {
   if (rule.stockTypeIds.some((id) => t.byId(id)?.parentId !== null)) throw new Error('Choose main stock types');
   const types = targetedTypes(rule);
   if (!types.some((type) => t.groupsOf(type.id).length)) throw new Error('No targeted stock type has groups to split the stock onto');
-  if (rule.criteria.some((c) => !c.values.length))
-    throw new Error('Each criterion needs at least one value');
   if (rule.purchaseOrders.length && !(rule.stockTypeIds.length === 1 && t.byId(rule.stockTypeIds[0])?.future))
     throw new Error('Purchase orders can only be entered for a single future stock type');
   types.forEach((type) => {

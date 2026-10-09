@@ -53,20 +53,21 @@ export function RuleEditorModal({
 
   const locations = useAsync(() => api.listLocations(), []);
   const criteriaKey = JSON.stringify(criteria);
-  const preview = useAsync(() => api.previewCriteria({ criteria }), [criteriaKey]);
+  // Only the rule name is required: criteria without value are ignored, an empty selection means "all".
+  const usedCriteria = criteria.filter((c) => c.values.length > 0);
+  const preview = useAsync(() => api.previewCriteria({ criteria: usedCriteria }), [criteriaKey]);
 
   const allTypes = tree.mainTypes.map((t) => t.id);
-  const targeted = tree.mainTypes.filter((t) => !specificTypes || stockTypeIds.includes(t.id));
+  const allTypesTargeted = !specificTypes || stockTypeIds.length === 0;
+  const targeted = tree.mainTypes.filter((t) => allTypesTargeted || stockTypeIds.includes(t.id));
   const targetedGroups = targeted.flatMap((t) => tree.groupsOf(t.id));
   /** Purchase orders only make sense on one future stock type. */
-  const poAllowed = specificTypes && targeted.length === 1 && targeted[0].future;
+  const poAllowed = !allTypesTargeted && targeted.length === 1 && targeted[0].future;
   const numericShares = Object.fromEntries(targetedGroups.map((g) => [g.id, num(shares[g.id] ?? '')]));
   const typeTotal = (typeId: string) => tree.groupsOf(typeId).reduce((s, g) => s + (numericShares[g.id] ?? 0), 0);
   const valuesValid = targetedGroups.every((g) => isInt(shares[g.id] ?? '') && isInt(thresholds[g.id] ?? ''));
-  const sharesValid = targeted.every((t) => typeTotal(t.id) <= 100) && targeted.some((t) => typeTotal(t.id) > 0);
-  // Characteristics are optional: without criterion the rule applies to every item.
-  const criteriaValid = criteria.every((c) => c.values.length > 0);
-  const valid = !!name.trim() && targeted.length > 0 && (!specificLocations || locationIds.length > 0) && criteriaValid && valuesValid && sharesValid && isPeriodValid(period);
+  const sharesValid = targeted.every((t) => typeTotal(t.id) <= 100);
+  const valid = !!name.trim() && valuesValid && sharesValid && isPeriodValid(period);
 
   /** Group suffix (e.g. "A" for on_hand_A), used to copy a split between stock types. */
   const suffix = (groupCode: string, parentCode: string) =>
@@ -96,10 +97,10 @@ export function RuleEditorModal({
     const input: RuleInput = {
       name: name.trim(),
       enabled,
-      criteria,
-      stockTypeIds: specificTypes ? stockTypeIds : [],
+      criteria: usedCriteria,
+      stockTypeIds: allTypesTargeted ? [] : stockTypeIds,
       purchaseOrders: poAllowed ? purchaseOrders : [],
-      locationIds,
+      locationIds: specificLocations ? locationIds : [],
       shares: numericShares,
       thresholds: Object.fromEntries(targetedGroups.map((g) => [g.id, (thresholds[g.id] ?? '').trim() === '' ? null : Number(thresholds[g.id])])),
       period,
@@ -148,7 +149,7 @@ export function RuleEditorModal({
             allowFree={false}
             placeholder="Search a stock type…"
           />
-          {stockTypeIds.length === 0 && <span className="text-error small">Select at least one stock type.</span>}
+          {stockTypeIds.length === 0 && <span className="muted small">None selected: all stock types.</span>}
         </>
       )}
     </div>
@@ -181,7 +182,7 @@ export function RuleEditorModal({
             allowFree={false}
             placeholder="Search a stock location…"
           />
-          {locationIds.length === 0 && <span className="text-error small">Select at least one stock location.</span>}
+          {locationIds.length === 0 && <span className="muted small">None selected: all stock locations.</span>}
         </>
       )}
     </div>
@@ -223,10 +224,9 @@ export function RuleEditorModal({
             </h3>
             <CriteriaEditor criteria={criteria} onChange={setCriteria} />
             <div className="rule-section__hint">
-              {!criteriaValid ? (
-                <span className="text-error">Choose at least one value for each criterion, or remove it.</span>
-              ) : preview.data ? (
+              {preview.data ? (
                 <>
+                  {!usedCriteria.length && <span className="muted">No criterion: every item — </span>}
                   <strong>{plural(preview.data.itemCount, 'item')} matched</strong>
                   {preview.data.sample.length > 0 && (
                     <span className="muted">
@@ -372,9 +372,7 @@ export function RuleEditorModal({
                 );
               })}
             </table>
-            {targeted.length > 0 && !targeted.some((t) => typeTotal(t.id) > 0) && (
-              <span className="muted small">Enter at least one percentage.</span>
-            )}
+
           </section>
         </div>
       </div>
