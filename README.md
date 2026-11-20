@@ -228,13 +228,25 @@ Réponse : compteurs (`lines`, `changed`, `unchanged`, `without_rule`, `blocked`
 
 ## Performances
 
-- Base : migration du schéma seulement quand sa version change (table `app_meta`) — un démarrage à froid d'une
-  fonction Vercel ne coûte que 2 petites requêtes (au lieu d'une vingtaine), utile avec Neon.
-- OneStock : stock lu par lots de 50 articles, 4 lots en parallèle ; une même lecture (stock d'un article, catégories,
-  emplacements) demandée en même temps par plusieurs écrans n'est faite qu'une fois ; token réutilisé (pas de `/login`
-  à chaque appel).
-- Application : les écrans *Item allocation*, détail article et *Settings* sont chargés à la demande (premier
-  téléchargement réduit d'environ 17 %).
+Chargement en arrière-plan (« stale-while-revalidate ») : les données déjà connues sont affichées tout de suite, puis
+relues en arrière-plan ; si elles ont changé, les écrans se rechargent d'eux-mêmes (`src/api/background.ts`).
+
+- Gardés dans le navigateur et relus en arrière-plan : liste des articles OneStock (10 min), détails des articles (1 h),
+  catégories et emplacements (5 min), totaux de stock pour le tri (2 min), règles du site (15 s), types de stock (30 s).
+  Une règle modifiée sur ce poste est relue immédiatement ; celle modifiée sur un autre poste apparaît sous 15 s.
+- *Segmentation rules* n'attend plus le catalogue : le nombre d'articles par règle affiche « … » puis se complète.
+- Première visite d'*Item allocation* : les premiers articles s'affichent dès la première page lue (« Catalog
+  loading… »), la liste se complète ensuite.
+- Préchargement quand le navigateur est inactif (catalogue, totaux de stock, emplacements).
+- Plus de latence simulée (la couche de démo ajoutait 120 ms à chaque réponse).
+- OneStock : stock lu par lots de 50, 4 en parallèle ; lectures identiques simultanées mutualisées ; token réutilisé.
+- Base : migration du schéma seulement quand sa version change (2 petites requêtes par démarrage à froid) ; une base
+  vide (nouvelle base Neon) est initialisée au premier contact, sans action manuelle.
+- *Settings* est chargé à la demande.
+
+Mesures (300 articles, 300 ms par appel OneStock), après une première visite : *Segmentation rules* 4,9 s → 0,09 s,
+*Item allocation* 5,9 s → 0,4 s, détail article 1,4 s → 0,36 s ; toute première visite d'*Item allocation* 5,9 s →
+1 s pour les premiers articles.
 
 ## Design
 

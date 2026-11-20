@@ -31,6 +31,7 @@ import {
   fetchEndpoints,
   fetchItemDetails,
   fetchItemIndex,
+  itemIndexSoFar,
   getOnestockConfig,
   isOnestockConfigured,
   minimalItem,
@@ -39,7 +40,8 @@ import {
   applySharedOnestockSettings,
 } from './onestock';
 import { lineDeltaRecords, recordsToLines } from '../utils/onestockStock';
-import { remoteRules } from './remoteRules';
+import { notifyBackgroundUpdate, persisted, whenIdle } from './background';
+import { remoteRules, rulesWritten } from './remoteRules';
 import { applyThresholds, itemsWithThresholds, loadThresholds, saveLineThresholds } from './thresholds';
 
 /** Items checked at most for the threshold alerts (OneStock stock is read for each of them). */
@@ -48,12 +50,9 @@ import { buildRules, buildStockLines, buildStockTypes, ITEMS, LOCATIONS, newLine
 import type { StockAllocationApi } from './types';
 
 const STORAGE_KEY = 'stock-allocation:mock:v4';
-const LATENCY_MS = 120;
-
-const delay = <T>(value: T): Promise<T> =>
-  new Promise((resolve) => setTimeout(() => resolve(structuredClone(value)), LATENCY_MS));
-const fail = (message: string): Promise<never> =>
-  new Promise((_, reject) => setTimeout(() => reject(new Error(message)), LATENCY_MS));
+/** Answer of the API: a copy of the value, so that the screens cannot change the stored data (no simulated latency). */
+const delay = <T>(value: T): Promise<T> => Promise.resolve(structuredClone(value));
+const fail = (message: string): Promise<never> => Promise.reject(new Error(message));
 
 interface Db {
   stockTypes: StockType[];
@@ -96,12 +95,57 @@ const tree = () => new StockTypeTree(db.stockTypes);
 // ---------------------------------------------------------------------------
 
 const remote = () => getDbConfig().mode === 'remote';
-/** Last rules read from the database (remote mode). */
+/** Last rules read from the database (remote mode), kept in the browser for an immediate display. */
 let remoteCache: SegmentationRule[] = [];
+/** When remoteCache was read (0: to read again, e.g. after a change of the rules). */
+let rulesAt = 0;
+const RULES_FRESH_MS = 15_000;
+const rulesStore = persisted<SegmentationRule[]>('rules');
+rulesWritten.add(() => (rulesAt = 0));
+/** Site of remoteCache: another site (Settings → OneStock API) reads its own rules. */
+let rulesSite = '';
 /** Current rules: always call syncRules() first in remote mode. */
 const rules = (): SegmentationRule[] => (remote() ? remoteCache : db.rules);
+
+async function readRules() {
+  const list = await remoteRules.list();
+  remoteCache = list;
+  rulesAt = Date.now();
+  rulesStore.set(currentSiteId(), list);
+  return list;
+}
+
+/**
+ * Rules of the database: read when they changed here or nothing is known; otherwise the known rules are used at once
+ * and read again in the background (the screens reload if another computer changed them).
+ */
 async function syncRules() {
-  await Promise.all([remote() ? remoteRules.list().then((r) => (remoteCache = r)) : undefined, loadCategoryTree()]);
+  const category = loadCategoryTree();
+  if (remote()) {
+    if (rulesSite !== currentSiteId()) {
+      rulesSite = currentSiteId();
+      remoteCache = [];
+      rulesAt = 0;
+    }
+    if (!rulesAt && !remoteCache.length) {
+      const saved = rulesStore.get(currentSiteId());
+      if (saved) {
+        remoteCache = saved.value;
+        rulesAt = saved.at;
+        // Copy of an earlier visit: read again in the background.
+        rulesAt = Math.min(rulesAt, Date.now() - RULES_FRESH_MS - 1);
+      }
+    }
+    if (!rulesAt) await readRules();
+    else if (Date.now() - rulesAt > RULES_FRESH_MS) {
+      const before = JSON.stringify(remoteCache);
+      rulesAt = Date.now();
+      readRules()
+        .then((list) => JSON.stringify(list) !== before && notifyBackgroundUpdate())
+        .catch(() => (rulesAt = 0));
+    }
+  }
+  await category;
 }
 
 /** OneStock category tree (cached 5 min): a rule on a category also matches the items of its sub-categories. */
@@ -121,9 +165,30 @@ async function loadCategoryTree() {
 
 const siteShared = () => remote() && !!currentSiteId();
 
-/** Loads the stock types of the site; the first computer of a site seeds them with its own. */
+/** When the stock types were read from the database (the local copy is used meanwhile). */
+let stockTypesAt = 0;
+const STOCK_TYPES_FRESH_MS = 30_000;
+
+/**
+ * Stock types of the site: the local copy is used at once and read again in the background when older than
+ * STOCK_TYPES_FRESH_MS (the screens reload if they changed). The first computer of a site seeds them with its own.
+ */
+let stockTypesSite = '';
 async function syncStockTypes() {
-  if (!siteShared()) return;
+  if (stockTypesSite !== currentSiteId()) {
+    stockTypesSite = currentSiteId();
+    stockTypesAt = 0;
+  }
+  if (!siteShared() || Date.now() - stockTypesAt < STOCK_TYPES_FRESH_MS) return;
+  const first = !stockTypesAt;
+  stockTypesAt = Date.now();
+  const before = JSON.stringify(db.stockTypes);
+  const sync = readStockTypes().then(() => !first && JSON.stringify(db.stockTypes) !== before && notifyBackgroundUpdate());
+  // First read of the session: wait for it (stock types and OneStock login of the site); later ones run in the background.
+  if (first) await sync;
+}
+
+async function readStockTypes() {
   try {
     const { settings, logins } = await remoteRules.getSiteSettings();
     // Same answer: the OneStock options and login (user) of the site are applied too.
@@ -148,6 +213,41 @@ const linesOf = (itemId: string) => db.lines.filter((l) => l.itemId === itemId);
 
 /** Items of the current catalog (OneStock: every indexed id, with details when already loaded). */
 let catalogCache: Item[] = ITEMS;
+const CATALOG_WAIT_MS = 300;
+
+/**
+ * Catalog if it can be had within `ms` (browser copy, memory); otherwise it keeps loading in the background and the
+ * screens reload when it is there.
+ */
+async function catalogWithin(ms: number): Promise<boolean> {
+  const loading = loadCatalog();
+  const ready = await Promise.race([loading.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), ms))]);
+  if (!ready) loading.then(() => notifyBackgroundUpdate()).catch(() => undefined);
+  return ready;
+}
+
+/** Waits for the first page of the item index (true: the whole catalog was loaded meanwhile). */
+async function firstItemsOrCatalog(): Promise<boolean> {
+  const catalog = loadCatalog().then(() => true);
+  const firstPage = new Promise<boolean>((resolve) => {
+    const check = setInterval(() => itemIndexSoFar().length && (clearInterval(check), resolve(false)), 50);
+    catalog.finally(() => clearInterval(check));
+  });
+  return Promise.race([catalog, firstPage]);
+}
+
+/** After the start, when the browser is idle: catalog, stock totals and stock locations are loaded in advance. */
+export function prefetchInBackground() {
+  whenIdle(() => {
+    const onestock = getOnestockConfig();
+    if (!isOnestockConfigured(onestock)) return;
+    loadCatalog()
+      .then((items) => (useOnestockStock() ? fetchStockTotals(items.map((i) => i.id)) : undefined))
+      .catch(() => undefined);
+    if (onestock.useForLocations) fetchEndpoints().catch(() => undefined);
+  });
+}
+
 async function loadCatalog(): Promise<Item[]> {
   if (!useOnestockItems()) return (catalogCache = ITEMS);
   const ids = await fetchItemIndex();
@@ -410,7 +510,8 @@ export const mockApi: StockAllocationApi = {
   // --- Rules
   async listRules(query) {
     const q = normalize(query.search ?? '');
-    await Promise.all([syncRules(), loadCatalog()]);
+    // The rules are shown without waiting for the item catalog: the matched item counts follow when it is loaded.
+    const [, catalogReady] = await Promise.all([syncRules(), catalogWithin(CATALOG_WAIT_MS)]);
     const list0 = [...rules()].sort(byPriority).filter((r) => !query.stockTypeId || appliesToStockType(r, query.stockTypeId));
     // A SKU search also lists every rule matching that item (e.g. its category rule).
     const found = q ? catalog().find((i) => normalize(i.sku) === q) : undefined;
@@ -430,7 +531,9 @@ export const mockApi: StockAllocationApi = {
       ? [...new Set(itemLines.map((l) => effectiveRule(rules(), item, l)?.id).filter((id): id is string => !!id))]
       : [];
     return delay({
-      data: list.slice(start, start + query.pageSize).map((rule) => ({ rule, matchedItemCount: matchedItems(rule).length })),
+      data: list
+        .slice(start, start + query.pageSize)
+        .map((rule) => ({ rule, matchedItemCount: catalogReady ? matchedItems(rule).length : null })),
       total: list.length,
       ruleCount: rules().length,
       matchedItem: item ? { item, effectiveRuleIds } : undefined,
@@ -621,8 +724,11 @@ export const mockApi: StockAllocationApi = {
 
   async listItems(query: ItemQuery) {
     if (query.ruleId) await syncRules();
-    await loadCatalog();
-    let list = summaries().filter((s) => matchesSearch(query.search ?? '')(s.item));
+    // First visit: the catalog may take a while (whole index of OneStock); the items already read are listed meanwhile.
+    let ready = await catalogWithin(CATALOG_WAIT_MS);
+    if (!ready) ready = await firstItemsOrCatalog();
+    const base = ready ? summaries() : itemIndexSoFar().map((id) => summarize(itemOf(id), linesOf(id)));
+    let list = base.filter((s) => matchesSearch(query.search ?? '')(s.item));
     if (query.warningType) list = list.filter((s) => s.warnings.includes(query.warningType!));
     if (query.itemIds) {
       const ids = new Set(query.itemIds);
@@ -652,9 +758,9 @@ export const mockApi: StockAllocationApi = {
       let data = page.map((s, i) => (stock ? summarize(details[i], stock.lines.filter((l) => l.itemId === ids[i])) : { ...s, item: details[i] }));
       // Quantities are only known for the page: a quantity sort applies to it.
       if (stock && query.sort && query.sort.key !== 'item') data = sortSummaries(data, query.sort);
-      return { data, total: list.length };
+      return { data, total: list.length, partial: !ready };
     }
-    return delay({ data: page, total: list.length });
+    return delay({ data: page, total: list.length, partial: !ready });
   },
 
   async getWarningSummary() {

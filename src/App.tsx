@@ -8,11 +8,14 @@ import { DataVersionProvider, useDataVersion } from './components/DataVersion';
 import { ResetIcon } from './components/Icons';
 import { ToastProvider, useToast } from './components/Toast';
 import { RulesPage } from './pages/RulesPage';
+import { prefetchInBackground } from './api/mockApi';
 import { Spinner } from './components/ui';
 
-// Home page loaded with the application; the other screens are loaded when opened (smaller first download).
-const ItemListPage = lazy(() => import('./pages/ItemListPage').then((m) => ({ default: m.ItemListPage })));
-const ItemDetailPage = lazy(() => import('./pages/ItemDetailPage').then((m) => ({ default: m.ItemDetailPage })));
+import { ItemDetailPage } from './pages/ItemDetailPage';
+import { ItemListPage } from './pages/ItemListPage';
+
+// Settings (the largest screen, rarely opened) is loaded when opened; the main screens come with the application
+// (a screen loaded on demand is shown at least ~300 ms later by React).
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 import { StockTypesProvider } from './components/StockTypes';
 import { SettingsIcon } from './components/Icons';
@@ -44,6 +47,8 @@ function Shell() {
   const { bump } = useDataVersion();
   const notify = useToast();
   useHomeOnOpen();
+  // Data of the other screens loaded in advance, in the background.
+  useEffect(() => prefetchInBackground(), []);
   // Result of the connection of this computer to the shared database (see api/bootstrap).
   const [keyRequired, setKeyRequired] = useState(false);
   useEffect(() => {

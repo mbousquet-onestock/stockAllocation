@@ -6,9 +6,10 @@ export default route({
     const url = connectionString();
     if (!url) return { ok: false, configured: false, error: 'DATABASE_URL is not configured on the server' };
     const [info] = await sql()<{ database: string; version: string }[]>`select current_database() as database, version() as version`;
+    // New (empty) database: the tables are created at the first contact, no manual initialization needed.
+    // Existing tables: brought to the current schema (only when its version changed).
+    await ensureSchemaOnce();
     const ready = await schemaReady();
-    // Existing tables: bring them to the current schema (site_id…) before counting.
-    if (ready) await ensureSchemaOnce();
     const site = optionalSiteOf(req);
     const ruleCount = ready ? Number((await sql()`select count(*)::int as n from segmentation_rules where site_id = ${site}`)[0].n) : 0;
     // Sites known by the database: a new computer can pick its site (or take it when there is only one).

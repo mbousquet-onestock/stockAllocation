@@ -124,15 +124,19 @@ async function call<T>(path: string, init: RequestInit = {}, config: DbConfig = 
 
 const json = (method: string, body: unknown): RequestInit => ({ method, body: JSON.stringify(body) });
 
+/** Listeners told when the rules are written (caches of the rules are then out of date). */
+export const rulesWritten = new Set<() => void>();
+const written = <T>(p: Promise<T>): Promise<T> => p.finally(() => rulesWritten.forEach((l) => l()));
+
 export const remoteRules = {
   health: (config?: DbConfig) => call<DbHealth>('/health', {}, config),
   setup: (config?: DbConfig) => call<{ ok: boolean }>('/setup', { method: 'POST' }, config),
   list: () => call<SegmentationRule[]>('/rules'),
-  create: (rule: Omit<SegmentationRule, 'id' | 'priority' | 'updatedAt'>) => call<SegmentationRule>('/rules', json('POST', rule)),
-  update: (id: string, rule: Partial<SegmentationRule>) => call<SegmentationRule>(`/rules/${encodeURIComponent(id)}`, json('PUT', rule)),
-  remove: (id: string) => call<{ ok: boolean }>(`/rules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  reorder: (order: string[]) => call<SegmentationRule[]>('/rules', json('PUT', { order })),
-  replaceAll: (rules: SegmentationRule[], config?: DbConfig) => call<SegmentationRule[]>('/rules', json('PUT', { rules }), config),
+  create: (rule: Omit<SegmentationRule, 'id' | 'priority' | 'updatedAt'>) => written(call<SegmentationRule>('/rules', json('POST', rule))),
+  update: (id: string, rule: Partial<SegmentationRule>) => written(call<SegmentationRule>(`/rules/${encodeURIComponent(id)}`, json('PUT', rule))),
+  remove: (id: string) => written(call<{ ok: boolean }>(`/rules/${encodeURIComponent(id)}`, { method: 'DELETE' })),
+  reorder: (order: string[]) => written(call<SegmentationRule[]>('/rules', json('PUT', { order }))),
+  replaceAll: (rules: SegmentationRule[], config?: DbConfig) => written(call<SegmentationRule[]>('/rules', json('PUT', { rules }), config)),
   /** Settings shared by the users of the site (stock types, OneStock options — no secrets). */
   getSiteSettings: () => call<SiteSettingsAnswer>('/settings'),
   /** Alert thresholds of the stock lines of these items (api/thresholds). */

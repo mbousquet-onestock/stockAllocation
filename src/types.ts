@@ -142,6 +142,8 @@ export interface Sort<K extends string> {
 export interface Page<T> {
   data: T[];
   total: number;
+  /** The whole list is still loading: these are the first items (the screens reload when it is complete). */
+  partial?: boolean;
 }
 
 /** 'item' | 'totalStock' | 'activeSegments' | a stock type id. */
@@ -226,7 +228,8 @@ export type RuleInput = Omit<SegmentationRule, 'id' | 'priority' | 'updatedAt'>;
 
 export interface RuleSummary {
   rule: SegmentationRule;
-  matchedItemCount: number;
+  /** null while the item catalog is loading. */
+  matchedItemCount: number | null;
 }
 
 export interface RuleQuery {

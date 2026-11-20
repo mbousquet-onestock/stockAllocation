@@ -337,7 +337,7 @@ export function RulesPage() {
                   </td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <Link to={`/items?rule=${rule.id}`} className="badge badge--link" title="See the matched items and their allocation">
-                      {matchedItemCount}
+                      {matchedItemCount ?? '…'}
                     </Link>
                   </td>
                   <td className="col-actions" onClick={(e) => e.stopPropagation()}>

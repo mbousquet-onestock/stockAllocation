@@ -147,6 +147,11 @@ export function ItemListPage() {
             </button>
           </span>
         )}
+        {list.data?.partial && (
+          <span className="muted small catalog-loading">
+            <Spinner /> Catalog loading — {plural(list.data.total, 'item')} so far, the list completes by itself
+          </span>
+        )}
         {onestockStock && list.data && (
           <span className="muted small">
             <button

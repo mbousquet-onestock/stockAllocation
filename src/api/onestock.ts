@@ -1,5 +1,6 @@
 import type { Item, StockLocation } from '../types';
 import { logApiCall } from './apiLog';
+import { notifyBackgroundUpdate, persisted } from './background';
 import { getDbConfig } from './dbConfig';
 import { remoteRules } from './remoteRules';
 import {
@@ -143,6 +144,46 @@ let categoriesCache: { at: number; list: Category[] } | undefined;
 const CACHE_MS = 5 * 60 * 1000;
 
 /** Categories from the OneStock API, cached 5 minutes. */
+/** Context of the cached OneStock data: environment, site, language. */
+const cacheContext = (c = getOnestockConfig()) => [envKey(c.url), c.siteId.trim(), c.language].join('|');
+
+/**
+ * Stale-while-revalidate: the value in memory or kept in the browser is returned at once; when it is older than
+ * maxAge it is refreshed in the background, and the screens reload if it changed.
+ * Nothing known yet: the value is loaded (the only case where the caller waits for OneStock).
+ */
+async function swr<T>(
+  name: string,
+  memory: { get: () => { at: number; value: T } | undefined; set: (v: { at: number; value: T }) => void },
+  maxAge: number,
+  load: () => Promise<T>,
+  force = false,
+): Promise<T> {
+  const store = persisted<T>(name);
+  const context = cacheContext();
+  let current = memory.get();
+  if (!current) {
+    current = store.get(context);
+    if (current) memory.set(current);
+  }
+  const refresh = () =>
+    shared(name, async () => {
+      const value = await load();
+      const next = { at: Date.now(), value };
+      memory.set(next);
+      store.set(context, value, next.at);
+      return value;
+    });
+  if (force || !current) return refresh();
+  if (Date.now() - current.at > maxAge) {
+    const before = JSON.stringify(current.value);
+    refresh()
+      .then((v) => JSON.stringify(v) !== before && notifyBackgroundUpdate())
+      .catch(() => undefined);
+  }
+  return current.value;
+}
+
 /** Same call already running: its promise is shared instead of calling OneStock twice. */
 const inflight = new Map<string, Promise<unknown>>();
 function shared<T>(key: string, load: () => Promise<T>): Promise<T> {
@@ -154,14 +195,20 @@ function shared<T>(key: string, load: () => Promise<T>): Promise<T> {
 }
 
 export async function fetchCategories(force = false): Promise<Category[]> {
-  if (!force && categoriesCache && Date.now() - categoriesCache.at < CACHE_MS) return categoriesCache.list;
-  return shared('categories', async () => {
-    const list = parseCategories(await callOnestock('/categories'));
-    categoriesCache = { at: Date.now(), list };
-    // A rule on a category also matches the items of its sub-categories.
-    setCategoryParents(categoryParentMap(list));
-    return list;
-  });
+  return swr(
+    'categories',
+    {
+      get: () => (categoriesCache ? { at: categoriesCache.at, value: categoriesCache.list } : undefined),
+      set: (v) => {
+        categoriesCache = { at: v.at, list: v.value };
+        // A rule on a category also matches the items of its sub-categories.
+        setCategoryParents(categoryParentMap(v.value));
+      },
+    },
+    CACHE_MS,
+    async () => parseCategories(await callOnestock('/categories')),
+    force,
+  );
 }
 
 /** Label of a category value, from the last loaded list. */
@@ -193,12 +240,16 @@ let endpointsCache: { at: number; list: StockLocation[] } | undefined;
 
 /** Stock locations (OneStock endpoints), cached 5 minutes. */
 export async function fetchEndpoints(force = false): Promise<StockLocation[]> {
-  if (!force && endpointsCache && Date.now() - endpointsCache.at < CACHE_MS) return endpointsCache.list;
-  return shared('endpoints', async () => {
-    const list = parseEndpoints(await callOnestock('/endpoints'));
-    endpointsCache = { at: Date.now(), list };
-    return list;
-  });
+  return swr(
+    'endpoints',
+    {
+      get: () => (endpointsCache ? { at: endpointsCache.at, value: endpointsCache.list } : undefined),
+      set: (v) => (endpointsCache = { at: v.at, list: v.value }),
+    },
+    CACHE_MS,
+    async () => parseEndpoints(await callOnestock('/endpoints')),
+    force,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -223,7 +274,6 @@ export async function fetchItemsPage(
 }
 
 let itemIndex: { at: number; ids: string[]; complete: boolean } | undefined;
-let indexLoading: Promise<string[]> | undefined;
 const INDEX_CACHE_MS = 10 * 60 * 1000;
 
 /**
@@ -231,38 +281,53 @@ const INDEX_CACHE_MS = 10 * 60 * 1000;
  * Pages are requested with `start`; if the API ignores it (same ids again), `search_after` is used instead.
  */
 export function fetchItemIndex(force = false): Promise<string[]> {
-  if (!force && itemIndex && Date.now() - itemIndex.at < INDEX_CACHE_MS) return Promise.resolve(itemIndex.ids);
-  if (indexLoading) return indexLoading;
-  indexLoading = (async () => {
-    const ids: string[] = [];
-    const seen = new Set<string>();
-    let start = 0;
-    let searchAfter: unknown[] | undefined;
-    let complete = false;
-    while (ids.length < MAX_INDEXED_ITEMS) {
-      const page = await fetchItemsPage(searchAfter ? { limit: PAGE_SIZE, search_after: searchAfter } : { limit: PAGE_SIZE, start });
-      const pageIds = (page.items ?? []).map((i) => i.id).filter((id): id is string => !!id);
-      const fresh = pageIds.filter((id) => !seen.has(id));
-      if (pageIds.length && !fresh.length && !searchAfter && page.pagination?.search_after) {
-        // `start` not honoured: continue from the last known id.
-        searchAfter = [ids[ids.length - 1]];
-        continue;
-      }
-      fresh.forEach((id) => {
-        seen.add(id);
-        ids.push(id);
-      });
-      if (pageIds.length < PAGE_SIZE || !fresh.length) {
-        complete = true;
-        break;
-      }
-      start += PAGE_SIZE;
-      if (searchAfter) searchAfter = page.pagination?.search_after ?? [pageIds[pageIds.length - 1]];
+  return swr(
+    'item-index',
+    {
+      get: () => (itemIndex ? { at: itemIndex.at, value: { ids: itemIndex.ids, complete: itemIndex.complete } } : undefined),
+      set: (v) => (itemIndex = { at: v.at, ...v.value }),
+    },
+    INDEX_CACHE_MS,
+    loadItemIndex,
+    force,
+  ).then((v) => v.ids);
+}
+
+/** Ids read so far by the index being loaded (first visit: the list can be shown before the end). */
+let indexSoFar: string[] = [];
+
+/** Item ids known now: the whole index, or the pages read so far while it is loading. */
+export const itemIndexSoFar = (): string[] => itemIndex?.ids ?? indexSoFar;
+
+/** Every item id of the site, page by page. */
+async function loadItemIndex(): Promise<{ ids: string[]; complete: boolean }> {
+  const ids: string[] = [];
+  indexSoFar = ids;
+  const seen = new Set<string>();
+  let start = 0;
+  let searchAfter: unknown[] | undefined;
+  let complete = false;
+  while (ids.length < MAX_INDEXED_ITEMS) {
+    const page = await fetchItemsPage(searchAfter ? { limit: PAGE_SIZE, search_after: searchAfter } : { limit: PAGE_SIZE, start });
+    const pageIds = (page.items ?? []).map((i) => i.id).filter((id): id is string => !!id);
+    const fresh = pageIds.filter((id) => !seen.has(id));
+    if (pageIds.length && !fresh.length && !searchAfter && page.pagination?.search_after) {
+      // `start` not honoured: continue from the last known id.
+      searchAfter = [ids[ids.length - 1]];
+      continue;
     }
-    itemIndex = { at: Date.now(), ids, complete };
-    return ids;
-  })().finally(() => (indexLoading = undefined));
-  return indexLoading;
+    fresh.forEach((id) => {
+      seen.add(id);
+      ids.push(id);
+    });
+    if (pageIds.length < PAGE_SIZE || !fresh.length) {
+      complete = true;
+      break;
+    }
+    start += PAGE_SIZE;
+    if (searchAfter) searchAfter = page.pagination?.search_after ?? [pageIds[pageIds.length - 1]];
+  }
+  return { ids, complete };
 }
 
 export const itemIndexComplete = () => itemIndex?.complete ?? false;
@@ -306,23 +371,34 @@ loadCompactDetails();
  * Item details by id: GET v3/items with { item_ids } (no pagination, as in the API contract), by batches of 25,
  * 4 calls at a time, cached. Unknown ids come back as minimal items.
  */
+/** Items whose details are being read: a second request for them waits for the first one. */
+const detailsLoading = new Map<string, Promise<void>>();
+
 export async function fetchItemDetails(ids: string[]): Promise<Item[]> {
-  const missing = [...new Set(ids.filter((id) => !itemDetails.has(id)))];
-  const batches: string[][] = [];
-  for (let i = 0; i < missing.length; i += DETAIL_BATCH) batches.push(missing.slice(i, i + DETAIL_BATCH));
-  const run = async () => {
-    for (let batch = batches.shift(); batch; batch = batches.shift()) {
-      const page = await callOnestock<ItemsPage>('/v3/items', getOnestockConfig(), { item_ids: batch });
-      (page.items ?? []).forEach((node) => {
-        if (!node.id) return;
-        itemDetails.set(String(node.id), parseItem(node as ItemNode));
-      });
-    }
-  };
+  const unique = [...new Set(ids)];
+  const waiting = [...new Set(unique.filter((id) => !itemDetails.has(id) && detailsLoading.has(id)).map((id) => detailsLoading.get(id)!))];
+  const missing = unique.filter((id) => !itemDetails.has(id) && !detailsLoading.has(id));
   if (missing.length) {
-    await Promise.all(Array.from({ length: Math.min(DETAIL_CONCURRENCY, batches.length) }, run));
-    saveCompactDetails();
+    const batches: string[][] = [];
+    for (let i = 0; i < missing.length; i += DETAIL_BATCH) batches.push(missing.slice(i, i + DETAIL_BATCH));
+    const run = async () => {
+      for (let batch = batches.shift(); batch; batch = batches.shift()) {
+        const page = await callOnestock<ItemsPage>('/v3/items', getOnestockConfig(), { item_ids: batch });
+        (page.items ?? []).forEach((node) => {
+          if (!node.id) return;
+          itemDetails.set(String(node.id), parseItem(node as ItemNode));
+        });
+      }
+    };
+    const loading = Promise.all(Array.from({ length: Math.min(DETAIL_CONCURRENCY, batches.length) }, run)).then(() => saveCompactDetails());
+    missing.forEach((id) => detailsLoading.set(id, loading));
+    try {
+      await loading;
+    } finally {
+      missing.forEach((id) => detailsLoading.get(id) === loading && detailsLoading.delete(id));
+    }
   }
+  await Promise.all(waiting);
   return ids.map((id) => itemDetails.get(id) ?? minimalItem(id));
 }
 
@@ -432,9 +508,18 @@ export async function fetchStockTotals(itemIds: string[], config = getOnestockCo
   // Small lists (e.g. a search): exact totals with item_filter calls.
   if (itemIds.length <= EXACT_TOTALS_MAX) return sum(await fetchStock(itemIds, config));
   const key = [config.url, config.siteId, config.stockRequest].join('|');
-  if (!(stockTotals && stockTotals.key === key && Date.now() - stockTotals.at < STOCK_CACHE_MS)) stockTotals = { at: Date.now(), totals: sum(await exportRecords(itemIds, config)), key };
+  // Totals of the whole site (one export): shown from the browser copy, refreshed in the background.
+  const entries = await swr<Array<[string, number]>>(
+    `stock-totals|${config.stockRequest}`,
+    {
+      get: () => (stockTotals && stockTotals.key === key ? { at: stockTotals.at, value: [...stockTotals.totals] } : undefined),
+      set: (v) => (stockTotals = { at: v.at, totals: new Map(v.value), key }),
+    },
+    STOCK_CACHE_MS,
+    async () => [...sum(await exportRecords(itemIds, config))],
+  );
   // Stock already read item by item (exact) wins over the export.
-  const totals = new Map(stockTotals.totals);
+  const totals = new Map(entries);
   stockCache.forEach((entry, id) => {
     if (Date.now() - entry.at < STOCK_CACHE_MS) totals.set(id, entry.records.reduce((t, r) => t + r.quantity, 0));
   });
