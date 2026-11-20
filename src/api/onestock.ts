@@ -388,8 +388,10 @@ loadCompactDetails();
 /** Items whose details are being read: a second request for them waits for the first one. */
 const detailsLoading = new Map<string, Promise<void>>();
 
-export async function fetchItemDetails(ids: string[]): Promise<Item[]> {
+export async function fetchItemDetails(ids: string[], fresh = false): Promise<Item[]> {
   const unique = [...new Set(ids)];
+  // Read again from OneStock (categories changed since the last read…): the cached details are dropped first.
+  if (fresh) unique.forEach((id) => !detailsLoading.has(id) && itemDetails.delete(id));
   const waiting = [...new Set(unique.filter((id) => !itemDetails.has(id) && detailsLoading.has(id)).map((id) => detailsLoading.get(id)!))];
   const missing = unique.filter((id) => !itemDetails.has(id) && !detailsLoading.has(id));
   if (missing.length) {

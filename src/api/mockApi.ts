@@ -149,11 +149,12 @@ async function syncRules() {
 }
 
 /** OneStock category tree (cached 5 min): a rule on a category also matches the items of its sub-categories. */
-async function loadCategoryTree() {
+async function loadCategoryTree(fresh = false) {
   const c = getOnestockConfig();
-  if (!c.useForCategories || !isOnestockConfigured(c)) return;
+  // Needed as soon as the items come from OneStock (their category_ids are sub-categories of the rule ones).
+  if (!(c.useForCategories || c.useForItems) || !isOnestockConfigured(c)) return;
   try {
-    await fetchCategories();
+    await fetchCategories(fresh);
   } catch (e) {
     console.warn('Category tree not loaded:', (e as Error).message);
   }
@@ -842,10 +843,11 @@ export const mockApi: StockAllocationApi = {
   },
 
   async previewOnestockRules(itemIds) {
-    await Promise.all([syncRules(), loadCatalog()]);
+    // Applying the rules reads the categories of the items and the category tree again from OneStock (no cache).
+    await Promise.all([syncRules(), loadCatalog(), loadCategoryTree(true)]);
     const ids = itemIds ?? [...(await fetchStockTotals(catalog().map((i) => i.id))).entries()].filter(([, q]) => q > 0).map(([id]) => id);
     const [stock, locations] = await Promise.all([stockOf(ids), allLocations()]);
-    const items = useOnestockItems() ? await fetchItemDetails([...new Set(stock.lines.map((l) => l.itemId))]) : [];
+    const items = useOnestockItems() ? await fetchItemDetails([...new Set(stock.lines.map((l) => l.itemId))], true) : [];
     const itemFor = (id: string) => items.find((i) => i.id === id) ?? itemOf(id);
     const t = tree();
     const preview: OnestockRulePreview = { changes: [], unchanged: 0, withoutRule: 0, itemCount: ids.length };
