@@ -50,7 +50,7 @@ npm run build      # typecheck + build de production
   ajout et suppression des types et de leurs groupes), enregistrée d'un coup par **Save for site …** pour le site ID
   (base Vercel), ou dans le navigateur sans base. *Cancel* annule les modifications. L'enregistrement est refusé si un
   type supprimé est utilisé par une règle ; un code invalide ou en double est signalé pendant la saisie.
-- **Settings** → *OneStock API* : URL, site_id, token, langue par défaut ; tests de chargement des catégories, des stock locations, des articles et du stock.
+- **Settings** → *OneStock API* : URL (environnement), site_id, **utilisateur / mot de passe** (token obtenu par `/login`), langue par défaut ; tests de chargement des catégories, des stock locations, des articles et du stock.
 - **Settings** → *API calls* : journal des appels API (OneStock via le proxy, base de données) avec date, méthode,
   chemin, statut, durée, résumé du résultat, requête et réponse (JSON, copiables) ; filtres par API, erreurs seules et
   recherche ; export JSON ; tokens et clés masqués. Avec la base Vercel (*Settings → Database*), l'historique est
@@ -71,8 +71,8 @@ Sans base de données, tous les paramètres sont propres à chaque navigateur. A
 | Options OneStock (url, langue, méthode, stock request, options) | table `site_settings` (`onestock`) |
 | Historique des appels API | table `api_calls` (`site_id`) — *Clear* ne purge que le site |
 | Seuils d'alerte des lignes de stock OneStock | table `stock_thresholds` (site × article × endpoint × groupe × purchase order) — saisis dans *Item allocation* (édition d'une ligne), relus à la consultation. Seul un seuil **différent de celui de la règle** est gardé pour la ligne ; un champ vide (affiché « Rule: X ») = seuil de la règle applicable, qui suit ses modifications |
-| Token OneStock (option *Store the token in the database*) | table `site_settings` (colonne `secrets`, jamais renvoyée au navigateur : seul le proxy la lit) |
-| Accès à la base (API URL, clé) et **site ID** (+ token si non stocké en base) | navigateur de chaque poste |
+| Identifiant OneStock (utilisateur / mot de passe) par site × environnement (URL), et token obtenu | table `site_settings`, colonne `secrets` (`onestockLogin`, `onestockSession`) : mot de passe **chiffré** (AES-256-GCM), jamais renvoyé au navigateur |
+| Accès à la base (API URL, clé) et **site ID** | navigateur de chaque poste |
 
 Le `site_id` est **obligatoire** pour les règles, l'historique et les paramètres (HTTP 400 sinon) : chaque ligne des
 tables `segmentation_rules` et `api_calls` porte son site (colonne sans valeur par défaut, index `(site_id, …)`). Sans
@@ -90,13 +90,22 @@ connaître pour la lire). Il est obtenu ainsi (`src/api/bootstrap.ts`, au démar
   *Settings → OneStock API* ;
 - si la base demande une clé et que le poste n'en a pas, un bandeau invite à ouvrir le lien ou à saisir la clé.
 
-Les options OneStock, le token (s'il est stocké en base), les types de stock et les règles du site sont ensuite chargés
+Les options OneStock, l'identifiant (utilisateur ; le mot de passe reste sur le serveur), les types de stock et les règles du site sont ensuite chargés
 depuis la base.
 
-Token en base : cocher *Store the token in the database* puis *Save*. `PUT /api/settings` reçoit
-`{ secrets: { onestockToken } }` (`""` le supprime) ; `GET /api/settings` ne renvoie que `hasToken`. Quand le navigateur
-n'envoie pas de token, le proxy `/api/onestock` lit celui du `site_id` en base. Un token saisi sur le poste reste
-prioritaire.
+### Authentification OneStock
+
+Seule méthode : **utilisateur / mot de passe** saisis dans *Settings → OneStock API*, rattachés au **contexte** — site ID
+et environnement (URL de l'API) — et enregistrés en base (`PUT /api/settings` avec
+`{ secrets: { onestockLogin: { url, user, password } } }`, mot de passe vide = garder celui enregistré). Le serveur
+appelle `POST {{url}}/login` (`{ site_id, user_id, password }`) pour obtenir le token, le garde (mémoire + base,
+50 min) et se reconnecte automatiquement quand OneStock le refuse (401 / 403). Aucun token n'est saisi ni stocké dans
+le navigateur ; `GET /api/settings` ne renvoie que les utilisateurs (`logins: [{ url, user }]`). *Test login* vérifie
+un identifiant avant de l'enregistrer.
+
+Chiffrement du mot de passe : clé de la variable d'environnement **`CREDENTIALS_SECRET`** (recommandé sur Vercel), à
+défaut clé aléatoire générée une fois et gardée dans la base (table `app_meta`), indépendante de `DATABASE_URL` (que
+Neon peut changer, branches de preview comprises). Changer `CREDENTIALS_SECRET` oblige à ressaisir les mots de passe.
 
 ## Base de données Vercel (règles de segmentation)
 
@@ -110,7 +119,7 @@ Les règles peuvent être stockées dans une base **Postgres (Neon) sur Vercel**
 | PUT | `/api/rules` | `{ order: [ids] }` ordre des priorités, ou `{ rules: [...] }` remplacement complet |
 | GET / PUT / DELETE | `/api/rules/:id` | Lecture / modification / suppression |
 | GET / PUT | `/api/thresholds` | Seuils des lignes de stock : `?item_ids=a,b` / `{ thresholds: [{ item_id, endpoint_id, stock_type, purchase_order, threshold }] }` (`threshold: null` supprime le seuil de la ligne : celui de la règle s'applique) |
-| GET / PUT | `/api/settings` | Paramètres partagés du site (types de stock, options OneStock ; token en écriture seule) |
+| GET / PUT | `/api/settings` | Paramètres partagés du site (types de stock, options OneStock ; identifiant OneStock en écriture seule) |
 | POST | `/api/stock-import` | Import / re-segmentation du stock OneStock avec les règles du site (voir ci-dessous) |
 | GET / POST / DELETE | `/api/api-calls` | Historique des appels API : lecture (`limit`, `offset`, `target`, `errors`, `q`) / ajout par lots / purge |
 
@@ -126,10 +135,10 @@ de l'API et la clé API. En local, mettre `DATABASE_URL` et `API_KEY` dans `.env
 
 ## API OneStock (catégories, stock locations, articles, stock)
 
-*Settings → OneStock API* : `{{url}}`, `{{site_id}}`, `{{token}}`, langue par défaut des libellés, stock request (`request_name` de
+*Settings → OneStock API* : `{{url}}`, `{{site_id}}`, utilisateur / mot de passe, langue par défaut des libellés, stock request (`request_name` de
 stock_export), méthode HTTP des lectures (GET par défaut : categories, endpoints, v3/items et stock_export envoient
 `site_id` / `token` dans un corps JSON ; POST si l'API n'accepte pas de corps en GET ; stock_import est toujours en PATCH). Quand l'API est configurée, les valeurs du critère **Category** de l'éditeur de règle viennent de
-`{{url}}/categories` (corps `{ "site_id", "token" }`).
+`{{url}}/categories` (corps `{ "site_id", "token" }`, token obtenu par le serveur via `/login`).
 
 - Les **stock locations** des règles (choix des points de stock) viennent de `{{url}}/endpoints` :
   `{ endpoints: [{ id, name, address: { city, regions: { country: { code } } } }] }` → id stocké dans la règle, nom affiché.
@@ -170,7 +179,7 @@ stock_export), méthode HTTP des lectures (GET par défaut : categories, endpoin
   directement (CORS). Le proxy n'autorise que les chemins listés (`/categories`, `/endpoints`, `/v3/items`, `/stock_export`, `/stock_import` — PATCH uniquement sur ce dernier,
   5 000 enregistrements maximum par appel), ne relaie que `pagination`, `item_ids`, `request_name`, `item_filter`,
   `import` et `stocks` en plus de
-  `site_id` / `token` (token lu en base pour le site s'il n'est pas fourni), et impose https.
+  `site_id` / `token` (token obtenu par `/login` avec l'identifiant enregistré du site), et impose https.
 - La réponse est un arbre `{ category: { sub_category: [{ id, display_info: { <langue>: { name } }, sub_category? }] } }` :
   chaque nœud devient une catégorie (libellé « Parent › Enfant » pour les niveaux inférieurs), nommée dans la langue par
   défaut, sinon dans la première langue disponible, sinon par son id. Les règles stockent l'**id** de la catégorie.
@@ -180,7 +189,7 @@ stock_export), méthode HTTP des lectures (GET par défaut : categories, endpoin
 
 `POST /api/stock-import` (en-têtes `x-api-key`, `x-site-id`) s'exécute **côté serveur**, sans navigateur : elle peut être
 appelée par un ERP, un ordonnanceur ou un cron. Elle utilise ce qui est enregistré en base pour le site : URL et
-options OneStock, **token** (*Store the token in the database* obligatoire), types de stock et règles de segmentation.
+options OneStock, **identifiant OneStock** (utilisateur / mot de passe enregistrés), types de stock et règles de segmentation.
 Les calculs sont ceux de l'application (module commun `api/_lib/segmentation.ts`).
 
 Trois usages selon le corps JSON :
@@ -216,6 +225,16 @@ Réponse : compteurs (`lines`, `changed`, `unchanged`, `without_rule`, `blocked`
 - *Settings → Stock import API* : critères d'appel (URL, en-têtes, modes, champs, réponse), prérequis du site vérifiés
   en base, exemple `curl` et **testeur** (simulation `dry_run` par défaut, envoi réel après confirmation, page suivante
   du catalogue).
+
+## Performances
+
+- Base : migration du schéma seulement quand sa version change (table `app_meta`) — un démarrage à froid d'une
+  fonction Vercel ne coûte que 2 petites requêtes (au lieu d'une vingtaine), utile avec Neon.
+- OneStock : stock lu par lots de 50 articles, 4 lots en parallèle ; une même lecture (stock d'un article, catégories,
+  emplacements) demandée en même temps par plusieurs écrans n'est faite qu'une fois ; token réutilisé (pas de `/login`
+  à chaque appel).
+- Application : les écrans *Item allocation*, détail article et *Settings* sont chargés à la demande (premier
+  téléchargement réduit d'environ 17 %).
 
 ## Design
 

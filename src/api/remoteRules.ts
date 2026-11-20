@@ -6,8 +6,16 @@ import { siteHeader } from './site';
 export interface SiteSettings {
   stockTypes?: StockType[];
   onestock?: Record<string, unknown>;
-  /** Write only: secrets of the site ('' removes). Never sent back, see `hasToken`. */
-  secrets?: { onestockToken?: string };
+  /** Write only: OneStock login of an environment (password empty = keep the saved one). Never sent back, see `logins`. */
+  secrets?: { onestockLogin?: { url: string; user?: string; password?: string; remove?: boolean } };
+}
+
+/** Answer of /api/settings: options of the site, and the users of the saved OneStock logins (by environment). */
+export interface SiteSettingsAnswer {
+  siteId: string;
+  settings: SiteSettings | null;
+  logins: Array<{ url: string; user: string }>;
+  updatedAt: string | null;
 }
 
 export interface DbHealth {
@@ -126,7 +134,7 @@ export const remoteRules = {
   reorder: (order: string[]) => call<SegmentationRule[]>('/rules', json('PUT', { order })),
   replaceAll: (rules: SegmentationRule[], config?: DbConfig) => call<SegmentationRule[]>('/rules', json('PUT', { rules }), config),
   /** Settings shared by the users of the site (stock types, OneStock options — no secrets). */
-  getSiteSettings: () => call<{ siteId: string; settings: SiteSettings | null; hasToken: boolean; updatedAt: string | null }>('/settings'),
+  getSiteSettings: () => call<SiteSettingsAnswer>('/settings'),
   /** Alert thresholds of the stock lines of these items (api/thresholds). */
   getThresholds: (itemIds: string[]) =>
     call<{ thresholds: ThresholdEntry[] }>(`/thresholds?item_ids=${encodeURIComponent(itemIds.join(','))}`),
@@ -134,5 +142,5 @@ export const remoteRules = {
   saveThresholds: (thresholds: ThresholdEntry[]) => call<{ ok: boolean; saved: number }>('/thresholds', json('PUT', { thresholds })),
   /** Server side stock import with the segmentation rules (api/stock-import). */
   stockImport: (body: Record<string, unknown>) => call<StockImportAnswer>('/stock-import', json('POST', body)),
-  saveSiteSettings: (patch: SiteSettings) => call<{ siteId: string; settings: SiteSettings }>('/settings', json('PUT', patch)),
+  saveSiteSettings: (patch: SiteSettings) => call<SiteSettingsAnswer>('/settings', json('PUT', patch)),
 };

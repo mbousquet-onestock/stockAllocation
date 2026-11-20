@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getDbConfig } from '../api/dbConfig';
-import { fetchEndpoints, fetchItemIndex, getOnestockConfig, isOnestockConfigured } from '../api/onestock';
+import { envKey, fetchEndpoints, fetchItemIndex, getOnestockConfig, isOnestockConfigured } from '../api/onestock';
 import { remoteRules, type StockImportAnswer } from '../api/remoteRules';
 import { currentSiteId } from '../api/site';
 import { ConfirmModal } from '../components/ConfirmModal';
@@ -116,7 +116,10 @@ export function StockImportApiSettings() {
         const enabled = rules.filter((r) => r.enabled).length;
         setChecks([
           { label: 'OneStock URL stored for the site', ok: !!onestock.url, detail: onestock.url || 'Save Settings → OneStock API' },
-          { label: 'OneStock token stored in the database', ok: s.hasToken, detail: s.hasToken ? undefined : 'Check "Store the token in the database" in Settings → OneStock API' },
+          (() => {
+            const login = s.logins.find((l) => onestock.url && l.url === envKey(onestock.url));
+            return { label: 'OneStock login (user / password) saved for the environment', ok: !!login, detail: login ? login.user : 'Set them in Settings → OneStock API' };
+          })(),
           { label: 'Stock types stored for the site', ok: !!s.settings?.stockTypes?.length, detail: s.settings?.stockTypes?.length ? `${s.settings.stockTypes.length} stock types and groups` : 'Open Settings → Stock types once' },
           { label: 'Enabled segmentation rules', ok: enabled > 0, detail: plural(enabled, 'rule') },
           { label: 'Stock request (request_name of stock_export)', ok: true, detail: onestock.stockRequest || '(none: default export)' },
@@ -207,7 +210,7 @@ export function StockImportApiSettings() {
           <dd>API key of the Vercel project (<code>API_KEY</code> variable, Settings → Database) — required when it is set.</dd>
           <dt>Header x-site-id</dt>
           <dd>
-            OneStock site ID: <code>{site || '(not set)'}</code> — selects the rules, stock types, OneStock URL and token of the site.
+            OneStock site ID: <code>{site || '(not set)'}</code> — selects the rules, stock types, OneStock URL and login of the site.
           </dd>
           <dt>Header Content-Type</dt>
           <dd>

@@ -3,7 +3,7 @@ import https from 'node:https';
 import { HttpError } from './db.js';
 
 /** OneStock API calls made server side (proxy of the application, stock import function). */
-export const ALLOWED_PATHS = ['/categories', '/endpoints', '/v3/items', '/stock_export', '/stock_import'];
+export const ALLOWED_PATHS = ['/login', '/categories', '/endpoints', '/v3/items', '/stock_export', '/stock_import'];
 /** Paths that may be written to (PATCH). */
 export const WRITE_PATHS = ['/stock_import'];
 const TIMEOUT_MS = 15000;

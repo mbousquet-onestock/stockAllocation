@@ -71,8 +71,10 @@ export async function ensureSchema() {
       data jsonb not null,
       updated_at timestamptz not null default now()
     )`;
-  // Secrets of the site (OneStock token): never returned to the browser, read by the OneStock proxy only.
+  // Secrets of the site (OneStock user / password and session, by environment): never returned to the browser.
   await sql()`alter table site_settings add column if not exists secrets jsonb not null default '{}'::jsonb`;
+  // The token typed by hand is not used any more (authentication through /login only).
+  await sql()`update site_settings set secrets = secrets - 'onestockToken' where secrets ? 'onestockToken'`;
   // Alert thresholds of the stock lines (OneStock has none): by item × endpoint × group stock type × purchase order.
   // A row is a threshold set on the line, replacing the threshold of the rule; no row = threshold of the rule.
   await sql()`
@@ -90,11 +92,23 @@ export async function ensureSchema() {
   await sql()`delete from stock_thresholds where threshold is null`;
 }
 
+/** Version of ensureSchema: increase it when ensureSchema changes, so that existing databases are migrated. */
+const SCHEMA_VERSION = '8';
 let schemaChecked = false;
-/** Schema created / migrated once per function instance. */
+
+/**
+ * Schema created / migrated once per function instance, and only when the database is not at SCHEMA_VERSION yet:
+ * a cold start costs 2 small queries instead of the whole migration.
+ */
 export async function ensureSchemaOnce() {
   if (schemaChecked) return;
-  await ensureSchema();
+  const [{ exists }] = await sql()<{ exists: boolean }[]>`select to_regclass('public.app_meta') is not null as exists`;
+  const version = exists ? (await sql()<{ value: string }[]>`select value from app_meta where key = 'schema'`)[0]?.value : undefined;
+  if (version !== SCHEMA_VERSION) {
+    await ensureSchema();
+    await sql()`create table if not exists app_meta (key text primary key, value text not null)`;
+    await sql()`insert into app_meta (key, value) values ('schema', ${SCHEMA_VERSION}) on conflict (key) do update set value = excluded.value`;
+  }
   schemaChecked = true;
 }
 
@@ -204,9 +218,3 @@ export function body<T>(req: ApiRequest): T {
   return b as T;
 }
 
-/** OneStock token stored for the site (Settings → OneStock API), or undefined. */
-export async function siteToken(site: string): Promise<string | undefined> {
-  const [row] = await sql()<{ token: string | null }[]>`
-    select secrets->>'onestockToken' as token from site_settings where site_id = ${site}`;
-  return row?.token || undefined;
-}

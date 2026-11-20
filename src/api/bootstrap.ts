@@ -7,7 +7,7 @@ import { getOnestockConfig, setOnestockConfig } from './onestock';
  * 2. otherwise, when this browser has no database configuration yet: the database of the deployment (/api) is used
  *    when it answers without API key;
  * 3. the site ID is taken from the database when it knows a single site.
- * The OneStock options (and the token, when stored in the database) of the site are then loaded from the database.
+ * The OneStock options and login (user, the password stays on the server) of the site are then loaded from the database.
  */
 export interface SetupLink {
   apiUrl: string;

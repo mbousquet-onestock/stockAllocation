@@ -12,6 +12,7 @@ import {
   fetchItemsPage,
   loadSharedOnestockSettings,
   publishOnestockSettings,
+  testOnestockLogin,
   fetchStock,
   setOnestockConfig,
   type Category,
@@ -41,7 +42,7 @@ function languagesOf(data: unknown): string[] {
 
 const COMMON_LANGUAGES = ['fr', 'en', 'it', 'es', 'de', 'nl', 'pt'];
 
-/** Settings → OneStock API: {{url}}, {{site_id}}, {{token}} and default language. */
+/** Settings → OneStock API: environment ({{url}}), {{site_id}}, login (user / password → token via /login) and options. */
 export function OnestockSettings() {
   const notify = useToast();
   const { bump } = useDataVersion();
@@ -49,7 +50,10 @@ export function OnestockSettings() {
   const [shared, setShared] = useState<{ loaded: boolean; updatedAt?: string | null; error?: string }>();
   const sharing = getDbConfig().mode === 'remote';
   const [config, setConfig] = useState<OnestockConfig>(saved);
-  const [showToken, setShowToken] = useState(false);
+  // Login of the context (site × environment): saved in the database, the password is never read back.
+  const [login, setLogin] = useState({ user: saved.loginUser, password: '' });
+  const [showPassword, setShowPassword] = useState(false);
+  const [loginTest, setLoginTest] = useState<{ ok: boolean; message: string }>();
   // Sites known by the shared database, proposed for the site ID.
   const [sites, setSites] = useState<string[]>([]);
   useEffect(() => {
@@ -62,7 +66,8 @@ export function OnestockSettings() {
   const [stockIds, setStockIds] = useState('');
   const tree = useStockTypes();
   const [endpoints, setEndpoints] = useState<{ locations: StockLocation[] } | { error: string }>();
-  const dirty = JSON.stringify(config) !== JSON.stringify(saved);
+  const loginDirty = login.user.trim() !== saved.loginUser || login.password !== '';
+  const dirty = JSON.stringify(config) !== JSON.stringify(saved) || loginDirty;
   const complete = isOnestockConfigured(config);
 
   const set = (patch: Partial<OnestockConfig>) => {
@@ -150,30 +155,52 @@ export function OnestockSettings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const refresh = () => {
+    const c = getOnestockConfig();
+    setConfig(c);
+    setSaved(c);
+    setLogin({ user: c.loginUser, password: '' });
+  };
+
   const save = async () => {
     const siteChanged = config.siteId.trim() !== saved.siteId.trim();
     setOnestockConfig(config);
-    setSaved(config);
     try {
+      let loadedFromSite = false;
       if (siteChanged) {
         // Another site: take its shared options if it has some, else publish these ones.
         const r = await loadSharedOnestockSettings();
-        if (r.loaded) {
-          setConfig(getOnestockConfig());
-          setSaved(getOnestockConfig());
-          setShared(r);
-          notify(`Settings of site ${config.siteId.trim()} loaded from the database`, 'info');
-          bump();
-          return;
-        }
+        loadedFromSite = r.loaded;
+        if (r.loaded) setShared(r);
       }
-      const published = await publishOnestockSettings(config);
-      if (published) setShared({ loaded: true, updatedAt: new Date().toISOString() });
-      notify(published ? `OneStock settings saved and shared with site ${config.siteId.trim()}` : 'OneStock API settings saved');
+      if (!loadedFromSite || loginDirty) {
+        const published = await publishOnestockSettings(getOnestockConfig(), loginDirty ? login : undefined);
+        if (published) setShared({ loaded: true, updatedAt: new Date().toISOString() });
+      }
+      notify(
+        loadedFromSite && !loginDirty
+          ? `Settings of site ${config.siteId.trim()} loaded from the database`
+          : `OneStock settings saved for site ${config.siteId.trim()}${loginDirty ? ` (login of ${login.user.trim()})` : ''}`,
+      );
     } catch (e) {
-      notify(`Saved on this computer only — database: ${(e as Error).message}`, 'error');
+      notify(`Not saved in the database: ${(e as Error).message}`, 'error');
     }
+    refresh();
+    setLoginTest(undefined);
     bump();
+  };
+
+  const testLogin = async () => {
+    setBusy(true);
+    setLoginTest(undefined);
+    try {
+      const user = await testOnestockLogin(config, login.password ? login : undefined);
+      setLoginTest({ ok: true, message: `Login accepted by OneStock for ${user || login.user} (site ${config.siteId.trim()})` });
+    } catch (e) {
+      setLoginTest({ ok: false, message: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
   };
 
   const proxy = getDbConfig();
@@ -185,9 +212,9 @@ export function OnestockSettings() {
           <h2>OneStock API</h2>
           <p className="muted">
             Access to the OneStock API, used to list the <strong>categories</strong> (<code>{'{{url}}'}/categories</code>) the{' '}
-            <strong>items</strong> (<code>{'{{url}}'}/v3/items</code>) and the <strong>stock</strong> (read: <code>{'{{url}}'}/stock_export</code>, write: <code>PATCH {'{{url}}'}/stock_import</code>) and the <strong>stock locations</strong> (<code>{'{{url}}'}/endpoints</code>) of the segmentation rules, with <code>site_id</code> and{' '}
-            <code>token</code>. The browser cannot call the API
-            directly: the calls go through the proxy of the application (<code>{proxy.apiUrl || '/api'}/onestock</code>).
+            <strong>items</strong> (<code>{'{{url}}'}/v3/items</code>) and the <strong>stock</strong> (read: <code>{'{{url}}'}/stock_export</code>, write: <code>PATCH {'{{url}}'}/stock_import</code>) and the <strong>stock locations</strong> (<code>{'{{url}}'}/endpoints</code>) of the segmentation rules, with <code>site_id</code> and a token obtained with the
+            user / password of the site (<code>POST {'{{url}}'}/login</code>). The browser cannot call the API directly: the calls go
+            through the proxy of the application (<code>{proxy.apiUrl || '/api'}/onestock</code>), which logs in.
           </p>
           <p className={`small ${shared?.error ? 'text-error' : 'muted'}`}>
             {sharing ? (
@@ -198,11 +225,14 @@ export function OnestockSettings() {
                   <strong>Shared by site:</strong> the options below are stored in the database for the site{' '}
                   <code>{saved.siteId || '(no site id)'}</code>
                   {shared?.updatedAt ? ` (updated ${new Date(shared.updatedAt).toLocaleString('fr-FR')})` : ''}, so that every computer
-                  uses the same ones. The <strong>site ID</strong> stays on this computer; the <strong>token</strong> too, unless it is stored in the database below.
+                  uses the same ones. The <strong>user / password</strong> are saved in the database for the site and the environment (URL); the
+                  password is never sent back to the browsers.
                 </>
               )
             ) : (
-              <>These settings are stored in this browser only. Use the Vercel database (Settings → Database) to share them per site.</>
+              <span className="text-error">
+                The OneStock connection needs the Vercel database (Settings → Database): the user / password are saved there per site.
+              </span>
             )}
           </p>
         </div>
@@ -226,34 +256,49 @@ export function OnestockSettings() {
           </datalist>
           {sites.length > 0 && <span className="muted small">Sites of the database: {sites.join(', ')}</span>}
         </label>
-        <label className="field">
-          <span className="field__label">Token — {'{{token}}'}</span>
-          <span className="input-group">
+        <div className="form-row form-row--even">
+          <label className="field">
+            <span className="field__label">User</span>
             <input
-              type={showToken ? 'text' : 'password'}
-              value={config.token}
-              onChange={(e) => set({ token: e.target.value })}
-              autoComplete="off"
-              placeholder={saved.tokenInDatabase && sharing ? 'Stored in the database — type a new one to replace it' : ''}
+              className="input"
+              value={login.user}
+              onChange={(e) => (setLogin((l) => ({ ...l, user: e.target.value })), setLoginTest(undefined))}
+              autoComplete="username"
+              placeholder="OneStock user of the site"
             />
-            <button type="button" className="input-group__addon input-group__btn" onClick={() => setShowToken((v) => !v)}>
-              {showToken ? 'Hide' : 'Show'}
-            </button>
-          </span>
-        </label>
-        {sharing && (
-          <div className="field">
-            <Checkbox
-              checked={config.tokenInDatabase}
-              onChange={(tokenInDatabase) => set({ tokenInDatabase })}
-              label={`Store the token in the database for site ${config.siteId.trim() || '(no site id)'}: the other computers only need the site ID`}
-            />
-            <span className="muted small">
-              The token is saved apart and never sent back to the browsers: the proxy reads it in the database to call OneStock. Unchecking
-              it removes it from the database.
+          </label>
+          <label className="field">
+            <span className="field__label">Password</span>
+            <span className="input-group">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={login.password}
+                onChange={(e) => (setLogin((l) => ({ ...l, password: e.target.value })), setLoginTest(undefined))}
+                autoComplete="new-password"
+                placeholder={saved.loginSaved && login.user.trim() === saved.loginUser ? 'Saved in the database — type to replace it' : ''}
+              />
+              <button type="button" className="input-group__addon input-group__btn" onClick={() => setShowPassword((v) => !v)}>
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
             </span>
-          </div>
-        )}
+          </label>
+        </div>
+        <div className="db-actions">
+          <button
+            type="button"
+            className="btn btn--secondary"
+            disabled={busy || !sharing || !config.url.trim() || !config.siteId.trim() || !(login.password || saved.loginSaved)}
+            onClick={testLogin}
+          >
+            Test login
+          </button>
+          <span className={`small ${loginTest ? (loginTest.ok ? 'text-success' : 'text-error') : 'muted'}`}>
+            {loginTest?.message ??
+              (saved.loginSaved
+                ? `Login saved for site ${saved.siteId} on ${saved.url}${saved.loginUser ? ` (${saved.loginUser})` : ''}`
+                : 'No login saved for this site and environment yet')}
+          </span>
+        </div>
         <label className="field">
           <span className="field__label">Default language of the labels</span>
           <input
@@ -432,8 +477,9 @@ export function OnestockSettings() {
             The proxy uses the API URL and API key of <em>Settings → Database</em>. It only relays the allowed OneStock paths.
           </li>
           <li>
-            The token is kept in this browser, or stored in the database for the site (then each computer only enters the site ID). A
-            token typed here is always used first.
+            Authentication: the proxy logs in with the user / password saved for the site and the environment (POST{' '}
+            <code>/login</code>), keeps the token on the server and logs in again when OneStock refuses it. No token is typed or stored
+            in the browser.
           </li>
         </ul>
       </div>

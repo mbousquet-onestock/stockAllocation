@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { api } from './api';
 import { dismissConnectionNotice, takeConnectionNotice } from './api/bootstrap';
@@ -7,10 +7,13 @@ import { currentSiteId } from './api/site';
 import { DataVersionProvider, useDataVersion } from './components/DataVersion';
 import { ResetIcon } from './components/Icons';
 import { ToastProvider, useToast } from './components/Toast';
-import { ItemDetailPage } from './pages/ItemDetailPage';
-import { ItemListPage } from './pages/ItemListPage';
 import { RulesPage } from './pages/RulesPage';
-import { SettingsPage } from './pages/SettingsPage';
+import { Spinner } from './components/ui';
+
+// Home page loaded with the application; the other screens are loaded when opened (smaller first download).
+const ItemListPage = lazy(() => import('./pages/ItemListPage').then((m) => ({ default: m.ItemListPage })));
+const ItemDetailPage = lazy(() => import('./pages/ItemDetailPage').then((m) => ({ default: m.ItemDetailPage })));
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 import { StockTypesProvider } from './components/StockTypes';
 import { SettingsIcon } from './components/Icons';
 
@@ -100,6 +103,7 @@ function Shell() {
         </div>
       )}
       <main>
+        <Suspense fallback={<Spinner />}>
         <Routes>
           <Route path="/" element={<RulesPage />} />
           <Route path="/items" element={<ItemListPage />} />
@@ -107,6 +111,7 @@ function Shell() {
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </Suspense>
       </main>
     </div>
   );

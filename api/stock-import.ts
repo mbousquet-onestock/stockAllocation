@@ -1,5 +1,6 @@
-import { body, HttpError, route, siteOf, siteToken, sql } from './_lib/db.js';
-import { answerError, callJson, onestockUrl } from './_lib/onestockHttp.js';
+import { body, HttpError, route, siteOf, sql } from './_lib/db.js';
+import { answerError } from './_lib/onestockHttp.js';
+import { callOnestockApi, savedCredentials } from './_lib/onestockAuth.js';
 import { listRules } from './_lib/rules.js';
 import {
   applyRuleToLine,
@@ -37,8 +38,8 @@ import type { Item, SegmentationRule, StockLine, StockType } from '../src/types.
  *
  * Items (criteria: category_ids, brand, season…) are read with v3/items, the current stock with stock_export, and the
  * changes are sent with PATCH stock_import `incremental: true` (variation of each stock type). `dry_run: true` only
- * computes them. The OneStock URL, options, token and stock types are the ones stored for the site
- * (Settings → OneStock API, with "Store the token in the database").
+ * computes them. The OneStock URL, options, login (user / password) and stock types are the ones saved for the site
+ * (Settings → OneStock API).
  */
 
 interface IncomingRecord {
@@ -97,12 +98,12 @@ async function siteContext(site: string) {
     select data from site_settings where site_id = ${site}`;
   const onestock = row?.data.onestock ?? {};
   if (!onestock.url) throw new HttpError(400, `No OneStock URL stored for site ${site}: save Settings → OneStock API with the database`);
-  const token = await siteToken(site);
-  if (!token) throw new HttpError(400, `No OneStock token stored for site ${site}: check "Store the token in the database" in Settings → OneStock API`);
+  if (!(await savedCredentials(site, onestock.url)))
+    throw new HttpError(400, `No OneStock user / password saved for site ${site} on ${onestock.url}: Settings → OneStock API`);
   const types = row?.data.stockTypes ?? [];
   if (!types.length) throw new HttpError(400, `No stock types stored for site ${site}: open Settings → Stock types once`);
   const rules = (await listRules(site)) as unknown as SegmentationRule[];
-  return { onestock, token, tree: new StockTypeTree(types), rules: rules.filter((r) => r.enabled) };
+  return { onestock, tree: new StockTypeTree(types), rules: rules.filter((r) => r.enabled) };
 }
 
 type Context = Awaited<ReturnType<typeof siteContext>>;
@@ -116,7 +117,7 @@ function onestockClient(site: string, ctx: Context) {
       logs.push({ at: new Date(started), method, path: `${ctx.onestock.url!.replace(/\/+$/, '')}${path}`, request: { site_id: site, token: '•••', ...summarize(params) }, duration: Date.now() - started, ...extra });
     let result: { status: number; data: unknown };
     try {
-      result = await callJson(onestockUrl(ctx.onestock.url!, path), method, { site_id: site, token: ctx.token, ...params });
+      result = await callOnestockApi(site, ctx.onestock.url!, path, method, params);
     } catch (e) {
       const error = e instanceof HttpError ? e.message : `OneStock API unreachable: ${(e as Error).message}`;
       entry({ ok: false, error });

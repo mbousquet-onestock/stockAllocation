@@ -125,9 +125,9 @@ const siteShared = () => remote() && !!currentSiteId();
 async function syncStockTypes() {
   if (!siteShared()) return;
   try {
-    const { settings, hasToken } = await remoteRules.getSiteSettings();
-    // Same answer: the OneStock options of the site (and whether its token is stored) are applied too.
-    applySharedOnestockSettings(settings?.onestock, hasToken);
+    const { settings, logins } = await remoteRules.getSiteSettings();
+    // Same answer: the OneStock options and login (user) of the site are applied too.
+    applySharedOnestockSettings(settings?.onestock, logins);
     if (settings?.stockTypes?.length) {
       db.stockTypes = settings.stockTypes;
       persist();

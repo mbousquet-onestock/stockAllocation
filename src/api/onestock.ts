@@ -22,10 +22,13 @@ export interface OnestockConfig {
   url: string;
   /** {{site_id}} */
   siteId: string;
-  /** {{token}} (may stay empty on this computer when it is stored in the database for the site). */
-  token: string;
-  /** The token is stored in the database for the site: the proxy reads it there when none is given. */
-  tokenInDatabase: boolean;
+  /**
+   * OneStock user of the context (site ID × environment URL), saved in the database with its password: the proxy
+   * logs in with them (POST /login) to get the token. Read from the database, the password never comes back.
+   */
+  loginUser: string;
+  /** A user / password is saved in the database for this site and environment. */
+  loginSaved: boolean;
   method: 'GET' | 'POST';
   /** Default language of the labels (display_info), e.g. "fr". */
   language: string;
@@ -42,7 +45,7 @@ export interface OnestockConfig {
 }
 
 const KEY = 'stock-allocation:onestock-config';
-export const DEFAULT_ONESTOCK_CONFIG: OnestockConfig = { url: '', siteId: '', token: '', tokenInDatabase: false, method: 'GET', language: 'fr', useForCategories: true, useForLocations: true, useForItems: true, stockRequest: '', useForStock: true };
+export const DEFAULT_ONESTOCK_CONFIG: OnestockConfig = { url: '', siteId: '', loginUser: '', loginSaved: false, method: 'GET', language: 'fr', useForCategories: true, useForLocations: true, useForItems: true, stockRequest: '', useForStock: true };
 
 export function getOnestockConfig(): OnestockConfig {
   try {
@@ -73,8 +76,12 @@ export function setOnestockConfig(config: OnestockConfig) {
   stockTotals = undefined;
 }
 
+/** The OneStock API can be called: environment, site and a login saved in the database for them. */
 export const isOnestockConfigured = (c = getOnestockConfig()) =>
-  !!(c.url.trim() && c.siteId.trim() && (c.token.trim() || (c.tokenInDatabase && getDbConfig().mode === 'remote')));
+  !!(c.url.trim() && c.siteId.trim() && c.loginSaved && getDbConfig().mode === 'remote');
+
+/** Key of an environment (same as the server): API URL without trailing slash, lower case. */
+export const envKey = (url: string) => url.trim().replace(/\/+$/, '').toLowerCase();
 
 /** Calls an OneStock endpoint through the proxy function. */
 export async function callOnestock<T = unknown>(
@@ -86,7 +93,7 @@ export async function callOnestock<T = unknown>(
   const proxy = getDbConfig();
   const base = proxy.apiUrl.replace(/\/+$/, '') || '/api';
   const started = performance.now();
-  const request = { site_id: config.siteId.trim(), token: config.token.trim(), ...(params ?? {}) };
+  const request = { site_id: config.siteId.trim(), ...(params ?? {}) };
   const log = (entry: { ok: boolean; status?: number; response?: unknown; error?: string }) =>
     logApiCall({
       at: Date.now(),
@@ -102,7 +109,7 @@ export async function callOnestock<T = unknown>(
     res = await fetch(`${base}/onestock`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(proxy.apiKey ? { 'x-api-key': proxy.apiKey } : {}) },
-      body: JSON.stringify({ url: config.url.trim(), path, method, site_id: config.siteId.trim(), token: config.token.trim(), params }),
+      body: JSON.stringify({ url: config.url.trim(), path, method, site_id: config.siteId.trim(), params }),
     });
   } catch {
     const error = `Proxy unreachable (${base}/onestock)`;
@@ -136,13 +143,25 @@ let categoriesCache: { at: number; list: Category[] } | undefined;
 const CACHE_MS = 5 * 60 * 1000;
 
 /** Categories from the OneStock API, cached 5 minutes. */
+/** Same call already running: its promise is shared instead of calling OneStock twice. */
+const inflight = new Map<string, Promise<unknown>>();
+function shared<T>(key: string, load: () => Promise<T>): Promise<T> {
+  const running = inflight.get(key) as Promise<T> | undefined;
+  if (running) return running;
+  const p = load().finally(() => inflight.delete(key));
+  inflight.set(key, p);
+  return p;
+}
+
 export async function fetchCategories(force = false): Promise<Category[]> {
   if (!force && categoriesCache && Date.now() - categoriesCache.at < CACHE_MS) return categoriesCache.list;
-  const list = parseCategories(await callOnestock('/categories'));
-  categoriesCache = { at: Date.now(), list };
-  // A rule on a category also matches the items of its sub-categories.
-  setCategoryParents(categoryParentMap(list));
-  return list;
+  return shared('categories', async () => {
+    const list = parseCategories(await callOnestock('/categories'));
+    categoriesCache = { at: Date.now(), list };
+    // A rule on a category also matches the items of its sub-categories.
+    setCategoryParents(categoryParentMap(list));
+    return list;
+  });
 }
 
 /** Label of a category value, from the last loaded list. */
@@ -175,9 +194,11 @@ let endpointsCache: { at: number; list: StockLocation[] } | undefined;
 /** Stock locations (OneStock endpoints), cached 5 minutes. */
 export async function fetchEndpoints(force = false): Promise<StockLocation[]> {
   if (!force && endpointsCache && Date.now() - endpointsCache.at < CACHE_MS) return endpointsCache.list;
-  const list = parseEndpoints(await callOnestock('/endpoints'));
-  endpointsCache = { at: Date.now(), list };
-  return list;
+  return shared('endpoints', async () => {
+    const list = parseEndpoints(await callOnestock('/endpoints'));
+    endpointsCache = { at: Date.now(), list };
+    return list;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -336,6 +357,7 @@ export const useOnestockItems = (c = getOnestockConfig()) => c.useForItems && is
 export type { StockRecord, StockImportRecord } from '../../api/_lib/segmentation.js';
 
 const STOCK_BATCH = 50;
+const STOCK_CONCURRENCY = 4;
 const STOCK_CACHE_MS = 2 * 60 * 1000;
 const stockCache = new Map<string, { at: number; records: StockRecord[] }>();
 let lastStockRead: number | undefined;
@@ -352,11 +374,19 @@ export function refreshAllStock() {
 export const useOnestockStock = (c = getOnestockConfig()) => c.useForStock && isOnestockConfigured(c);
 
 /** stock_export for some items: { request_name, item_filter: { ids } }, by batches, cached 2 minutes per item. */
+/** Items whose stock is being read: a second request for them waits for the first one. */
+const stockLoading = new Map<string, Promise<void>>();
+
 export async function fetchStock(itemIds: string[], config = getOnestockConfig(), force = false): Promise<StockRecord[]> {
   const now = Date.now();
-  const missing = [...new Set(itemIds)].filter((id) => force || !stockCache.has(id) || now - stockCache.get(id)!.at > STOCK_CACHE_MS);
-  for (let i = 0; i < missing.length; i += STOCK_BATCH) {
-    const batch = missing.slice(i, i + STOCK_BATCH);
+  const unique = [...new Set(itemIds)];
+  const waiting = force ? [] : unique.filter((id) => stockLoading.has(id)).map((id) => stockLoading.get(id)!);
+  const missing = unique.filter(
+    (id) => (force || !stockLoading.has(id)) && (force || !stockCache.has(id) || now - stockCache.get(id)!.at > STOCK_CACHE_MS),
+  );
+  const batches: string[][] = [];
+  for (let i = 0; i < missing.length; i += STOCK_BATCH) batches.push(missing.slice(i, i + STOCK_BATCH));
+  const loadBatch = async (batch: string[]) => {
     const data = await callOnestock<{ stocks?: StockRecord[] }>('/stock_export', config, {
       ...(config.stockRequest.trim() ? { request_name: config.stockRequest.trim() } : {}),
       item_filter: { ids: batch },
@@ -369,6 +399,19 @@ export async function fetchStock(itemIds: string[], config = getOnestockConfig()
     });
     byItem.forEach((records, id) => stockCache.set(id, { at: now, records }));
     lastStockRead = now;
+  };
+  // Batches read STOCK_CONCURRENCY at a time.
+  const queue = [...batches];
+  const running = Promise.all(
+    Array.from({ length: Math.min(STOCK_CONCURRENCY, queue.length) }, async () => {
+      for (let b = queue.shift(); b; b = queue.shift()) await loadBatch(b);
+    }),
+  ).then(() => undefined);
+  missing.forEach((id) => stockLoading.set(id, running));
+  try {
+    await Promise.all([running, ...waiting]);
+  } finally {
+    missing.forEach((id) => stockLoading.get(id) === running && stockLoading.delete(id));
   }
   return itemIds.flatMap((id) => stockCache.get(id)?.records ?? []);
 }
@@ -446,39 +489,58 @@ export function invalidateStock(itemIds: string[]) {
 // ---------------------------------------------------------------------------
 
 /**
- * Options shared through the database: everything but the site_id (the key of the site) and the token,
- * which is saved apart (secrets) when `tokenInDatabase` is set and never read back by the browser.
+ * Options shared through the database: everything but the site_id (the key of the site) and the login,
+ * which is saved apart (secrets, by environment) and whose password is never read back by the browser.
  */
 export function sharedOnestockSettings(config: OnestockConfig): Record<string, unknown> {
-  const { siteId: _site, token: _token, tokenInDatabase: _stored, ...shared } = config;
+  const { siteId: _site, loginUser: _user, loginSaved: _saved, ...shared } = config;
   return shared;
 }
 
 const sharingEnabled = (config: OnestockConfig) => getDbConfig().mode === 'remote' && !!config.siteId.trim();
 
-/** Saves the shared OneStock options of the site in the database (when the Vercel database is used). */
-export async function publishOnestockSettings(config = getOnestockConfig()): Promise<boolean> {
+/**
+ * Saves the shared OneStock options of the site in the database, and the login of the environment when a user is
+ * given (an empty password keeps the saved one).
+ */
+export async function publishOnestockSettings(config = getOnestockConfig(), login?: { user: string; password: string }): Promise<boolean> {
   if (!sharingEnabled(config)) return false;
-  const token = config.token.trim();
-  // Stored token: replaced when one is typed here, kept otherwise. Not stored: removed from the database.
-  const secrets = config.tokenInDatabase ? (token ? { onestockToken: token } : undefined) : { onestockToken: '' };
-  await remoteRules.saveSiteSettings({ onestock: sharedOnestockSettings(config), ...(secrets ? { secrets } : {}) });
+  const secrets = login?.user.trim() && config.url.trim() ? { onestockLogin: { url: config.url.trim(), user: login.user.trim(), password: login.password } } : undefined;
+  const answer = await remoteRules.saveSiteSettings({ onestock: sharedOnestockSettings(config), ...(secrets ? { secrets } : {}) });
+  applySharedOnestockSettings(answer.settings?.onestock, answer.logins);
   return true;
+}
+
+/** Tests a OneStock login (the given user / password, or the saved ones): resolves when /login answers a token. */
+export async function testOnestockLogin(config: OnestockConfig, login?: { user: string; password: string }): Promise<string> {
+  const proxy = getDbConfig();
+  const base = proxy.apiUrl.replace(/\/+$/, '') || '/api';
+  const res = await fetch(`${base}/onestock`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(proxy.apiKey ? { 'x-api-key': proxy.apiKey } : {}) },
+    body: JSON.stringify({ url: config.url.trim(), path: '/login', site_id: config.siteId.trim(), ...(login?.password ? login : {}) }),
+  });
+  const payload = (await res.json().catch(() => undefined)) as { data?: { user?: string }; error?: string } | undefined;
+  if (!res.ok) throw new Error(payload?.error ?? `HTTP ${res.status}`);
+  return payload?.data?.user ?? '';
 }
 
 /** Loads the shared OneStock options of the site from the database into this computer's settings. */
 export async function loadSharedOnestockSettings(): Promise<{ loaded: boolean; updatedAt?: string | null }> {
   const current = getOnestockConfig();
   if (!sharingEnabled(current)) return { loaded: false };
-  const { settings, updatedAt, hasToken } = await remoteRules.getSiteSettings();
-  return { loaded: applySharedOnestockSettings(settings?.onestock, hasToken), updatedAt };
+  const { settings, updatedAt, logins } = await remoteRules.getSiteSettings();
+  return { loaded: applySharedOnestockSettings(settings?.onestock, logins), updatedAt };
 }
 
 /** Applies the OneStock options read from the database (site settings) to this computer's settings. */
-export function applySharedOnestockSettings(shared: Record<string, unknown> | undefined, hasToken: boolean): boolean {
-  if (!shared && !hasToken) return false;
+export function applySharedOnestockSettings(shared: Record<string, unknown> | undefined, logins: Array<{ url: string; user: string }> = []): boolean {
+  if (!shared && !logins.length) return false;
   const current = getOnestockConfig();
-  const next = { ...current, ...((shared ?? {}) as Partial<OnestockConfig>), siteId: current.siteId, token: current.token, tokenInDatabase: hasToken };
+  const merged = { ...current, ...((shared ?? {}) as Partial<OnestockConfig>), siteId: current.siteId };
+  // Login of the environment of the site (the password stays on the server).
+  const login = logins.find((l) => l.url === envKey(merged.url));
+  const next = { ...merged, loginUser: login?.user ?? '', loginSaved: !!login };
   if (JSON.stringify(next) !== JSON.stringify(current)) setOnestockConfig(next);
   return true;
 }

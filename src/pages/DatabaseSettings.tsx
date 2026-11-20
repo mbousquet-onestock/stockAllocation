@@ -178,7 +178,7 @@ export function DatabaseSettings() {
             The API URL and the API key cannot be read from the database (they are needed to reach it). A new computer connects by itself
             when the API needs no key (<code>API_KEY</code> not set): the database of this deployment is detected, and the site is taken
             when the database has only one. Otherwise send this <strong>setup link</strong>: opening it configures the browser (API URL,
-            API key, site ID); the OneStock options and token of the site are then loaded from the database.
+            API key, site ID); the OneStock options and login of the site are then loaded from the database.
           </p>
           <div className="input-group">
             <input className="share-link" readOnly value={link} onFocus={(e) => e.target.select()} />
