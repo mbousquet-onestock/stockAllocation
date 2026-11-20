@@ -30,7 +30,7 @@ interface OnestockData {
 
 const CONTEXT_KEY = 'stock-allocation:extension-context';
 const PARAMS = ['extension_id', 'user_id', 'site_id', 'lang', 'timezone', 'locale', 'parent_url', 'injection_point_path', 'host_app'] as const;
-const HANDSHAKE_TIMEOUT_MS = 8000;
+const HANDSHAKE_TIMEOUT_MS = 20000;
 
 let context: ExtensionContext | undefined;
 let session: { token: string; exp: number } | undefined;
@@ -43,7 +43,7 @@ let renewing: Promise<void> | undefined;
 export function readExtensionContext(): ExtensionContext | undefined {
   if (context) return context;
   const params = new URLSearchParams(window.location.search);
-  if (params.get('extension_id') && params.get('site_id')) {
+  if (params.get('extension_id')) {
     context = Object.fromEntries(PARAMS.map((k) => [k, params.get(k) ?? ''])) as unknown as ExtensionContext;
     try {
       sessionStorage.setItem(CONTEXT_KEY, JSON.stringify(context));
@@ -70,38 +70,71 @@ export const inExtension = () => !!context;
 /** A session was opened (it can then be renewed when it expires). */
 export const hasSession = () => !!session;
 
-/** Origin of the OneStock page that embeds the application (postMessage target and check). */
-function parentOrigin(): string {
-  try {
-    return new URL(context!.parent_url).origin;
-  } catch {
-    throw new Error('parent_url missing or invalid in the extension context');
-  }
+interface HandshakeStore {
+  data?: OnestockData;
+  origin?: string;
+  listeners: Array<() => void>;
+  ready: () => void;
+}
+const handshakeStore = () => (window as unknown as { __onestockHandshake?: HandshakeStore }).__onestockHandshake;
+
+/** Origins accepted for onestock_data: the back office that embeds the application. */
+function parentOrigins(): Set<string> {
+  const origins = new Set<string>();
+  const add = (u?: string | null) => {
+    try {
+      if (u) origins.add(new URL(u).origin);
+    } catch {
+      /* ignore */
+    }
+  };
+  add(context?.parent_url);
+  add(window.location.ancestorOrigins?.[0]);
+  add(document.referrer);
+  return origins;
 }
 
-/** extension_ready → onestock_data (only from the parent origin). */
-function handshake(): Promise<OnestockData> {
-  const origin = parentOrigin();
+/**
+ * extension_ready → onestock_data. extension_ready is sent by index.html as soon as the page starts; the answer is
+ * taken here (renewal: extension_ready is sent again). Only an answer of the parent window, from the back office, is used.
+ */
+function handshake(again: boolean): Promise<OnestockData> {
+  const store = handshakeStore();
+  if (!store) return Promise.reject(new Error('The application is not embedded by OneStock'));
+  const accept = () => {
+    const origin = store.origin ?? '';
+    if (!parentOrigins().has(origin)) throw new Error(`onestock_data received from an unexpected origin (${origin})`);
+    return store.data!;
+  };
+  if (store.data && !again) return Promise.resolve().then(accept);
+  if (again) store.data = undefined;
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      window.removeEventListener('message', onMessage);
-      reject(new Error('OneStock did not answer the extension handshake'));
-    }, HANDSHAKE_TIMEOUT_MS);
-    function onMessage(event: MessageEvent) {
-      if (event.origin !== origin || event.data?.type !== 'onestock_data') return;
+    const timer = setTimeout(() => reject(new Error('OneStock did not answer the extension handshake')), HANDSHAKE_TIMEOUT_MS);
+    store.listeners.push(() => {
       clearTimeout(timer);
-      window.removeEventListener('message', onMessage);
-      resolve((event.data.data ?? {}) as OnestockData);
-    }
-    window.addEventListener('message', onMessage);
-    window.parent.postMessage({ type: 'extension_ready' }, origin);
+      try {
+        resolve(accept());
+      } catch (e) {
+        reject(e);
+      }
+    });
+    if (again) store.ready();
   });
 }
 
+let opened = false;
+
 /** Handshake, then session opened with the signature of OneStock. */
 async function openSession() {
-  const data = await handshake();
-  if (data.api_url) context = { ...context!, api_url: String(data.api_url) };
+  const data = await handshake(opened);
+  opened = true;
+  // Values of the handshake complete the ones of the URL.
+  context = {
+    ...context!,
+    site_id: context!.site_id || String(data.site_id ?? ''),
+    user_id: context!.user_id || String(data.user_id ?? ''),
+    ...(data.api_url ? { api_url: String(data.api_url) } : {}),
+  };
   try {
     sessionStorage.setItem(CONTEXT_KEY, JSON.stringify(context));
   } catch {
@@ -138,14 +171,13 @@ export function authHeaders(apiKey = getDbConfig().apiKey): Record<string, strin
 
 /** Reports the height of the content to the back office (extension_resize), so that the iframe fits it. */
 export function startResizeReporting() {
-  if (!context || context.host_app === 'store-app') return;
-  const origin = parentOrigin();
+  if (!context || context.host_app === 'store-app' || window.parent === window) return;
   let last = 0;
   const report = () => {
     const height = Math.ceil(document.documentElement.scrollHeight);
     if (height > 0 && height !== last) {
       last = height;
-      window.parent.postMessage({ type: 'extension_resize', height }, origin);
+      window.parent.postMessage({ type: 'extension_resize', height }, '*');
     }
   };
   new ResizeObserver(report).observe(document.body);

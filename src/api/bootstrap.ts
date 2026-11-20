@@ -91,6 +91,7 @@ async function bootstrapExtension(): Promise<void> {
     await renewSession();
   } catch (e) {
     extensionError = (e as Error).message;
+    console.error('[extension] session not opened:', extensionError);
     return;
   }
   const ctx = extensionContext()!;

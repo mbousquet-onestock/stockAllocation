@@ -4,6 +4,29 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Stock allocation</title>
+    <script>
+      // OneStock UI Extension: extension_ready is sent to the back office as soon as the page starts (OneStock fails the
+      // loading after 20 s without it), before the fonts and the application code. The answer (onestock_data) is kept
+      // for the application (src/api/extension.ts).
+      (function () {
+        if (window.parent === window) return;
+        var store = (window.__onestockHandshake = { data: undefined, origin: undefined, listeners: [] });
+        window.addEventListener('message', function (event) {
+          var m = event.data;
+          if (event.source !== window.parent || !m || m.type !== 'onestock_data') return;
+          store.data = m.data || {};
+          store.origin = event.origin;
+          console.info('[extension] onestock_data received from ' + event.origin);
+          store.listeners.splice(0).forEach(function (l) { l(); });
+        });
+        store.ready = function () {
+          // The message carries no data: sent to any origin, the answer is checked on its arrival.
+          window.parent.postMessage({ type: 'extension_ready' }, '*');
+          console.info('[extension] extension_ready sent at ' + Math.round(performance.now()) + ' ms');
+        };
+        store.ready();
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet" />
   </head>
