@@ -147,6 +147,16 @@ export function ItemDetailPage() {
       }),
     ),
   ].sort();
+  // Header of a group column: label of the groups with this suffix (code when they differ).
+  const suffixLabel = (sfx: string) => {
+    const labels = new Set(
+      rows.flatMap((r) => {
+        const t = tree.byId(r.line.stockTypeId);
+        return tree.groupsOf(r.line.stockTypeId).filter((g) => groupSuffix(g.code, t?.code ?? '') === sfx).map((g) => g.label.trim() || sfx);
+      }),
+    );
+    return labels.size === 1 ? [...labels][0] : sfx;
+  };
   const item = summary.item;
   const pageRows = rows.slice(page * pageSize, (page + 1) * pageSize);
   const pagination = (
@@ -212,8 +222,8 @@ export function ItemDetailPage() {
               {total > 0 && <SplitBar main={m} groups={groups} quantities={summary.totals} total={total} mini />}
               <div className="kpi__breakdown">
                 {family.map((t) => (
-                  <span key={t.id} className={summary.warnings.includes(t.id) ? 'text-warning' : ''}>
-                    {t.code} <strong>{summary.totals[t.id] ?? 0}</strong>
+                  <span key={t.id} className={summary.warnings.includes(t.id) ? 'text-warning' : ''} title={t.code}>
+                    {t.label || t.code} <strong>{summary.totals[t.id] ?? 0}</strong>
                   </span>
                 ))}
               </div>
@@ -273,7 +283,7 @@ export function ItemDetailPage() {
                 </th>
                 {suffixes.map((sfx) => (
                   <th key={sfx} className="col-num col-group-cell" title={`Quantity on the group ${sfx} of the stock type`}>
-                    {sfx}
+                    {suffixLabel(sfx)}
                   </th>
                 ))}
                 <th className="col-num" title="Quantity left on the main stock type">
@@ -359,7 +369,7 @@ export function ItemDetailPage() {
                           <div className="split-pct">
                             {groups.map((g) => (
                               <span key={g.id}>
-                                {groupSuffix(g.code, type.code)} {Math.round(((r.line.split[g.id]?.quantity ?? 0) / r.line.quantity) * 100)}%
+                                {g.label || groupSuffix(g.code, type.code)} {Math.round(((r.line.split[g.id]?.quantity ?? 0) / r.line.quantity) * 100)}%
                               </span>
                             ))}
                           </div>

@@ -190,8 +190,8 @@ export function ItemListPage() {
                 <SortHeader label="item" sortKey="item" sort={sort} onSort={onSort} />
               </th>
               {segments.map((t) => (
-                <th key={t.id} className={t.parentId === null ? 'col-group-start' : ''} title={t.label}>
-                  <SortHeader label={t.code} sortKey={t.id} sort={sort} onSort={onSort} />
+                <th key={t.id} className={t.parentId === null ? 'col-group-start' : ''} title={t.code}>
+                  <SortHeader label={t.label || t.code} sortKey={t.id} sort={sort} onSort={onSort} />
                 </th>
               ))}
               <th className="col-group-start">
