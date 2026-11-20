@@ -75,7 +75,10 @@ export function ThresholdAlerts({
         {tile(ALL_ALERTS, 'Total', 'Stocks below their alert threshold', 'total')}
         {groups.map((g) => {
           const main = g.parentId ? tree.byId(g.parentId) : undefined;
-          return tile(g.id, g.code, `${main?.label ?? ''} › ${g.label}: stocks below the threshold of this segment`, 'segment');
+          // Label of the group, with the one of its stock type when it does not contain it (b2c → On hand b2c).
+          const label = g.label.trim() || g.code;
+          const name = main && !label.toLowerCase().startsWith(main.label.trim().toLowerCase()) ? `${main.label.trim()} ${label}` : label;
+          return tile(g.id, name, `${g.code} — stocks below the threshold of this segment`, 'segment');
         })}
       </div>
     </section>
