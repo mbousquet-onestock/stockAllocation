@@ -12,7 +12,7 @@ import { callOnestockApi, login, savedCredentials } from './_lib/onestockAuth.js
  */
 const MAX_STOCK_RECORDS = 5000;
 /** Extra body fields relayed with site_id / token. */
-const ALLOWED_PARAMS = ['pagination', 'item_ids', 'request_name', 'item_filter', 'import', 'stocks'];
+const ALLOWED_PARAMS = ['pagination', 'filters', 'fields', 'item_ids', 'request_name', 'item_filter', 'import', 'stocks'];
 
 interface ProxyBody {
   url: string;

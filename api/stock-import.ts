@@ -15,6 +15,7 @@ import {
   parseCategories,
   parseItemNode,
   recordsToLines,
+  itemDetailsRequest,
   setCategoryParents,
   StockTypeTree,
   type ItemNode,
@@ -241,7 +242,7 @@ export default route({
       // --- Item details (criteria), then the items that need a segmentation
       const items = new Map<string, Item>();
       await inBatches(itemIds, DETAIL_BATCH, async (batch) => {
-        const page = await call<{ items?: ItemNode[] }>('/v3/items', { item_ids: batch });
+        const page = await call<{ items?: ItemNode[] }>('/v3/items', itemDetailsRequest(batch));
         (page.items ?? []).forEach((node) => node.id && items.set(String(node.id), parseItemNode(node, language)));
       });
       const unknownItems = itemIds.filter((id) => !items.has(id));

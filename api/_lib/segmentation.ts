@@ -214,6 +214,18 @@ const firstValue = (v: FeatureValue[] | FeatureValue | undefined): string => {
   return x === null || x === undefined ? '' : String(x).trim();
 };
 
+/**
+ * Body of the v3/items call reading the details of some items: { filters: { ids }, fields, pagination }.
+ * category_ids (and the other item-level fields) only come back when they are listed in `fields`; the features
+ * always come back.
+ */
+export const ITEM_FIELDS = ['category_ids', 'product_id', 'is_default'];
+export const itemDetailsRequest = (ids: string[]) => ({
+  filters: { ids },
+  fields: ITEM_FIELDS,
+  pagination: { limit: ids.length, start: 0 },
+});
+
 /** Maps a v3/items entry to an Item, features read in the given language (fallback: first language). */
 export function parseItemNode(node: ItemNode, language: string): Item {
   const id = String(node.id);

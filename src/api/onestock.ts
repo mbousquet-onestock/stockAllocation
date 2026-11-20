@@ -7,6 +7,7 @@ import { extensionContext } from './extension';
 import { apiFetch } from './http';
 import {
   categoryParentMap,
+  itemDetailsRequest,
   parseCategories as parseCategoryTree,
   parseItemNode,
   setCategoryParents,
@@ -354,7 +355,7 @@ export const parseItem = (node: ItemNode, language = getOnestockConfig().languag
 const itemDetails = new Map<string, Item>();
 const DETAIL_BATCH = 25;
 const DETAIL_CONCURRENCY = 4;
-const DETAILS_KEY = 'stock-allocation:onestock-items:v2';
+const DETAILS_KEY = 'stock-allocation:onestock-items:v3';
 const DETAILS_CACHE_MS = 60 * 60 * 1000;
 
 /** Compact details kept in the browser (1 hour) so that the whole catalog is not reloaded at each visit. */
@@ -382,7 +383,7 @@ function saveCompactDetails() {
 loadCompactDetails();
 
 /**
- * Item details by id: GET v3/items with { item_ids } (no pagination, as in the API contract), by batches of 25,
+ * Item details by id: v3/items with { filters: { ids }, fields: [category_ids…], pagination }, by batches of 25,
  * 4 calls at a time, cached. Unknown ids come back as minimal items.
  */
 /** Items whose details are being read: a second request for them waits for the first one. */
@@ -399,7 +400,7 @@ export async function fetchItemDetails(ids: string[], fresh = false): Promise<It
     for (let i = 0; i < missing.length; i += DETAIL_BATCH) batches.push(missing.slice(i, i + DETAIL_BATCH));
     const run = async () => {
       for (let batch = batches.shift(); batch; batch = batches.shift()) {
-        const page = await callOnestock<ItemsPage>('/v3/items', getOnestockConfig(), { item_ids: batch });
+        const page = await callOnestock<ItemsPage>('/v3/items', getOnestockConfig(), itemDetailsRequest(batch));
         (page.items ?? []).forEach((node) => {
           if (!node.id) return;
           itemDetails.set(String(node.id), parseItem(node as ItemNode));
