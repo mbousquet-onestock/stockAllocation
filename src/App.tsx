@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { api } from './api';
+import { extensionErrorHidden, onExtensionErrorHidden } from './api/extension';
 import { dismissConnectionNotice, takeConnectionNotice, takeExtensionError } from './api/bootstrap';
 import { getDbConfig } from './api/dbConfig';
 import { currentSiteId } from './api/site';
@@ -51,6 +52,8 @@ function Shell() {
   useEffect(() => prefetchInBackground(), []);
   // Result of the connection of this computer to the shared database (see api/bootstrap).
   const [keyRequired, setKeyRequired] = useState(false);
+  const [hideExtensionError, setHideExtensionError] = useState(extensionErrorHidden);
+  useEffect(() => onExtensionErrorHidden(setHideExtensionError), []);
   useEffect(() => {
     const n = takeConnectionNotice();
     const site = currentSiteId();
@@ -87,7 +90,7 @@ function Shell() {
           </button>
         )}
       </header>
-      {takeExtensionError() && (
+      {takeExtensionError() && !hideExtensionError && (
         <div className="connection-banner is-error">
           OneStock extension: the session could not be opened — {takeExtensionError()}. Reload the page from OneStock.
         </div>

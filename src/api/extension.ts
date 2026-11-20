@@ -183,3 +183,28 @@ export function startResizeReporting() {
   new ResizeObserver(report).observe(document.body);
   report();
 }
+
+const HIDE_ERROR_KEY = 'stock-allocation:hide-extension-error';
+/** Settings → OneStock API: the banner of an extension session error can be hidden (this browser). */
+export function extensionErrorHidden(): boolean {
+  try {
+    return localStorage.getItem(HIDE_ERROR_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+const hiddenListeners = new Set<(hidden: boolean) => void>();
+/** Applies the option at once on the open screen. */
+export function onExtensionErrorHidden(listener: (hidden: boolean) => void) {
+  hiddenListeners.add(listener);
+  return () => void hiddenListeners.delete(listener);
+}
+export function setExtensionErrorHidden(hidden: boolean) {
+  hiddenListeners.forEach((l) => l(hidden));
+  try {
+    if (hidden) localStorage.setItem(HIDE_ERROR_KEY, '1');
+    else localStorage.removeItem(HIDE_ERROR_KEY);
+  } catch {
+    /* ignore */
+  }
+}

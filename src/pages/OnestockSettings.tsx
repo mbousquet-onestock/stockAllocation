@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { getDbConfig } from '../api/dbConfig';
-import { extensionContext } from '../api/extension';
+import { extensionContext, extensionErrorHidden, setExtensionErrorHidden } from '../api/extension';
 import { remoteRules } from '../api/remoteRules';
 import {
   callOnestock,
@@ -52,6 +52,7 @@ export function OnestockSettings() {
   const sharing = getDbConfig().mode === 'remote';
   const [config, setConfig] = useState<OnestockConfig>(saved);
   const fromCall = extensionContext();
+  const [hideExtensionError, setHideExtensionError] = useState(extensionErrorHidden);
   // Login of the context (site × environment): saved in the database, the password is never read back.
   const [login, setLogin] = useState({ user: saved.loginUser, password: '' });
   const [showPassword, setShowPassword] = useState(false);
@@ -255,6 +256,11 @@ export function OnestockSettings() {
               <input className="input" value={config.siteId} readOnly disabled />
             </label>
             <span className="muted small">Provided by OneStock with the call of the extension (user {fromCall.user_id}).</span>
+            <Checkbox
+              checked={hideExtensionError}
+              onChange={(hidden) => (setExtensionErrorHidden(hidden), setHideExtensionError(hidden))}
+              label="Hide the extension session error banner (this browser)"
+            />
           </div>
         ) : (
           <>
