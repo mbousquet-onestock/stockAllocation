@@ -1,5 +1,8 @@
 import { getDbConfig, hasSavedDbConfig, setDbConfig, type DbConfig } from './dbConfig';
-import { getOnestockConfig, setOnestockConfig } from './onestock';
+import { extensionContext, readExtensionContext, renewSession, startResizeReporting } from './extension';
+import { getOnestockConfig, loadSharedOnestockSettings, publishOnestockSettings, setOnestockConfig } from './onestock';
+import { remoteRules } from './remoteRules';
+import { apiFetch } from './http';
 
 /**
  * Connection of a new computer to the shared database, without typing anything:
@@ -66,10 +69,7 @@ async function health(config: DbConfig): Promise<{ status: number; body?: { conf
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const res = await fetch(`${config.apiUrl.replace(/\/+$/, '')}/health`, {
-      headers: config.apiKey ? { 'x-api-key': config.apiKey } : {},
-      signal: controller.signal,
-    });
+    const res = await apiFetch(`${config.apiUrl.replace(/\/+$/, '')}/health`, { signal: controller.signal }, config);
     const body = res.headers.get('content-type')?.includes('json') ? await res.json() : undefined;
     return { status: res.status, body };
   } catch {
@@ -79,7 +79,47 @@ async function health(config: DbConfig): Promise<{ status: number; body?: { conf
   }
 }
 
+/**
+ * Opened by OneStock as a UI extension: the context (site, environment, user) comes from the call. The database is
+ * the one of this deployment, reached with a session opened with the signature of OneStock.
+ */
+async function bootstrapExtension(): Promise<void> {
+  const db = getDbConfig();
+  if (db.mode !== 'remote' || db.apiUrl !== '/api') setDbConfig({ mode: 'remote', apiUrl: '/api', apiKey: '' });
+  startResizeReporting();
+  try {
+    await renewSession();
+  } catch (e) {
+    extensionError = (e as Error).message;
+    return;
+  }
+  const ctx = extensionContext()!;
+  const saved = getOnestockConfig();
+  const language = ctx.lang?.split(/[-_]/)[0];
+  // Saved with the context of the call, so that the screens and the server (stock import) use the same environment.
+  if (language && saved.language !== language) setOnestockConfig({ ...saved, language });
+  void publishCallEnvironment();
+}
+
+/** The environment of the call ({{url}}) is saved in the site settings, used by /api/stock-import. */
+async function publishCallEnvironment() {
+  try {
+    const { settings } = await remoteRules.getSiteSettings();
+    const url = (settings?.onestock as { url?: string } | undefined)?.url;
+    const config = getOnestockConfig();
+    if (config.url && url !== config.url) await publishOnestockSettings(config);
+    else await loadSharedOnestockSettings();
+  } catch {
+    /* retried at the next opening */
+  }
+}
+
+let extensionError: string | undefined;
+/** Error of the opening of the OneStock extension session (signature refused, no answer of OneStock…). */
+export const takeExtensionError = () => extensionError;
+
 export async function bootstrapConnection(): Promise<void> {
+  if (readExtensionContext()) return bootstrapExtension();
   // 1. Setup link
   const params = new URLSearchParams(window.location.search);
   const setup = params.get('setup');

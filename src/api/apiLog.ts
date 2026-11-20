@@ -1,5 +1,6 @@
 import { getDbConfig } from './dbConfig';
 import { currentSiteId, siteHeader } from './site';
+import { apiFetch } from './http';
 
 /**
  * Journal of the API calls made by the application (OneStock through the proxy, Vercel database),
@@ -132,10 +133,11 @@ const MAX_PENDING = 1000;
 /** Direct call to the history endpoint (not logged itself). */
 async function historyCall<T>(path: string, init: RequestInit = {}): Promise<T> {
   const config = getDbConfig();
-  const res = await fetch(`${config.apiUrl.replace(/\/+$/, '')}/api-calls${path}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...(config.apiKey ? { 'x-api-key': config.apiKey } : {}), ...siteHeader() },
-  });
+  const res = await apiFetch(
+    `${config.apiUrl.replace(/\/+$/, '')}/api-calls${path}`,
+    { ...init, headers: { 'Content-Type': 'application/json', ...siteHeader() } },
+    config,
+  );
   const payload = await res.json().catch(() => undefined);
   if (!res.ok) throw new Error((payload as { error?: string })?.error ?? `HTTP ${res.status}`);
   return payload as T;

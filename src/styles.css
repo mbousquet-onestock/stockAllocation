@@ -486,3 +486,4 @@ tr.is-drop-after td { box-shadow: inset 0 -2px 0 var(--primary); }
 .text-success { color: var(--success); }
 .form-row--even { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .catalog-loading { display: inline-flex; align-items: center; gap: 6px; } .catalog-loading .spinner { width: 14px; height: 14px; margin: 0; border-width: 2px; }
+.connection-banner.is-error { border-color: var(--danger, #e74c3c); background: #fdecea; }

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { getDbConfig } from '../api/dbConfig';
+import { extensionContext } from '../api/extension';
 import { remoteRules } from '../api/remoteRules';
 import {
   callOnestock,
@@ -50,6 +51,7 @@ export function OnestockSettings() {
   const [shared, setShared] = useState<{ loaded: boolean; updatedAt?: string | null; error?: string }>();
   const sharing = getDbConfig().mode === 'remote';
   const [config, setConfig] = useState<OnestockConfig>(saved);
+  const fromCall = extensionContext();
   // Login of the context (site × environment): saved in the database, the password is never read back.
   const [login, setLogin] = useState({ user: saved.loginUser, password: '' });
   const [showPassword, setShowPassword] = useState(false);
@@ -242,20 +244,36 @@ export function OnestockSettings() {
       </div>
 
       <div className="form-stack db-form">
-        <label className="field">
-          <span className="field__label">URL — {'{{url}}'}</span>
-          <input className="input" value={config.url} onChange={(e) => set({ url: e.target.value })} placeholder="https://api.example.com" />
-        </label>
-        <label className="field">
-          <span className="field__label">Site ID — {'{{site_id}}'}</span>
-          <input className="input" list="known-sites" value={config.siteId} onChange={(e) => set({ siteId: e.target.value })} placeholder="e.g. c1234" />
-          <datalist id="known-sites">
-            {sites.map((s) => (
-              <option key={s} value={s} />
-            ))}
-          </datalist>
-          {sites.length > 0 && <span className="muted small">Sites of the database: {sites.join(', ')}</span>}
-        </label>
+        {fromCall ? (
+          <div className="form-row form-row--even">
+            <label className="field">
+              <span className="field__label">URL — {'{{url}}'}</span>
+              <input className="input" value={config.url} readOnly disabled />
+            </label>
+            <label className="field">
+              <span className="field__label">Site ID — {'{{site_id}}'}</span>
+              <input className="input" value={config.siteId} readOnly disabled />
+            </label>
+            <span className="muted small">Provided by OneStock with the call of the extension (user {fromCall.user_id}).</span>
+          </div>
+        ) : (
+          <>
+          <label className="field">
+            <span className="field__label">URL — {'{{url}}'}</span>
+            <input className="input" value={config.url} onChange={(e) => set({ url: e.target.value })} placeholder="https://api.example.com" />
+          </label>
+          <label className="field">
+            <span className="field__label">Site ID — {'{{site_id}}'}</span>
+            <input className="input" list="known-sites" value={config.siteId} onChange={(e) => set({ siteId: e.target.value })} placeholder="e.g. c1234" />
+            <datalist id="known-sites">
+              {sites.map((s) => (
+                <option key={s} value={s} />
+              ))}
+            </datalist>
+            {sites.length > 0 && <span className="muted small">Sites of the database: {sites.join(', ')}</span>}
+          </label>
+          </>
+        )}
         <div className="form-row form-row--even">
           <label className="field">
             <span className="field__label">User</span>

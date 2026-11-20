@@ -2,6 +2,7 @@ import type { SegmentationRule, StockType } from '../types';
 import { logApiCall } from './apiLog';
 import { getDbConfig, type DbConfig } from './dbConfig';
 import { siteHeader } from './site';
+import { apiFetch } from './http';
 
 export interface SiteSettings {
   stockTypes?: StockType[];
@@ -90,15 +91,11 @@ async function call<T>(path: string, init: RequestInit = {}, config: DbConfig = 
     logApiCall({ at: Date.now(), target: 'Database', method, path: `${base}${path}`, request, durationMs: Math.round(performance.now() - started), ...entry });
   let res: Response;
   try {
-    res = await fetch(`${base}${path}`, {
-      ...init,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(config.apiKey ? { 'x-api-key': config.apiKey } : {}),
-        ...siteHeader(),
-        ...init.headers,
-      },
-    });
+    res = await apiFetch(
+      `${base}${path}`,
+      { ...init, headers: { 'Content-Type': 'application/json', ...siteHeader(), ...(init.headers as Record<string, string>) } },
+      config,
+    );
   } catch {
     const error = `Database API unreachable (${base})`;
     log({ ok: false, error });

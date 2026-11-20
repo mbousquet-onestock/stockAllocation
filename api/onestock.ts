@@ -31,6 +31,8 @@ export default route(
     POST: async (req) => {
       const b = body<ProxyBody>(req);
       if (!b.url || !b.site_id) throw new HttpError(400, 'url and site_id are required');
+      // OneStock extension session: only its own site.
+      if (req.session && req.session.site_id !== b.site_id) throw new HttpError(403, `This session is limited to site ${req.session.site_id}`);
       if (!connectionString()) throw new HttpError(400, 'The OneStock connection needs the database (user / password saved per site)');
       await ensureSchemaOnce();
 

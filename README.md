@@ -226,6 +226,35 @@ Réponse : compteurs (`lines`, `changed`, `unchanged`, `without_rule`, `blocked`
   en base, exemple `curl` et **testeur** (simulation `dry_run` par défaut, envoi réel après confirmation, page suivante
   du catalogue).
 
+## Extension OneStock (UI Extension)
+
+L'application peut être déclarée comme **UI Extension** dans OneStock ([documentation](https://onestock.atlassian.net/wiki/spaces/DOCUMENTAT/pages/1691418644/UI+Extensibility+-+How+to+develop+UI+Extensions)).
+OneStock la charge dans une iframe avec le contexte de l'appel :
+
+1. `GET {url}{path}?extension_id&user_id&site_id&lang&timezone&locale&parent_url&injection_point_path&host_app` :
+   le **site ID** vient de l'appel (`src/api/extension.ts`).
+2. Handshake : l'application envoie `extension_ready` à la fenêtre parente (origine de `parent_url`).
+   Elle reçoit `onestock_data`, avec l'**URL de l'API** de l'environnement (`api_url`) et `extension_signature`.
+   Les messages d'une autre origine sont ignorés.
+3. `POST /api/extension-session` vérifie la signature (HMAC-SHA256 de `t.extension_id##user_id`, 6 h max, secrets `h0`/`h1`/`h2`).
+   Il renvoie une session courte (2 h), envoyée en `Authorization: Bearer` à chaque appel `/api`.
+   La session est limitée au site de l'appel et renouvelée automatiquement par un nouveau handshake.
+4. `extension_resize` ajuste la hauteur de l'iframe au contenu (back-office).
+
+Dans ce mode, *Settings → OneStock API* affiche l'URL et le site ID **en lecture seule**.
+L'URL est enregistrée dans les paramètres du site pour `/api/stock-import`.
+L'accès à l'API OneStock passe toujours par le user / mot de passe du site et de l'environnement (`/login`).
+
+Variables Vercel :
+
+- `ONESTOCK_EXTENSION_SECRET` (obligatoire) : secret(s) de l'extension.
+- `ONESTOCK_EXTENSION_ID` (optionnel) : ID d'extension attendu.
+- `ONESTOCK_EXTENSION_SITES` (optionnel) : sites autorisés.
+- `SESSION_SECRET` (optionnel) : clé de signature des sessions.
+
+La **Deployment Protection** de Vercel doit être désactivée pour l'URL déclarée dans OneStock.
+Sinon, l'iframe affiche la page d'authentification Vercel.
+
 ## Performances
 
 Chargement en arrière-plan (« stale-while-revalidate ») : les données déjà connues sont affichées tout de suite, puis

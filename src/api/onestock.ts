@@ -3,6 +3,8 @@ import { logApiCall } from './apiLog';
 import { notifyBackgroundUpdate, persisted } from './background';
 import { getDbConfig } from './dbConfig';
 import { remoteRules } from './remoteRules';
+import { extensionContext } from './extension';
+import { apiFetch } from './http';
 import {
   categoryParentMap,
   parseCategories as parseCategoryTree,
@@ -49,13 +51,21 @@ const KEY = 'stock-allocation:onestock-config';
 export const DEFAULT_ONESTOCK_CONFIG: OnestockConfig = { url: '', siteId: '', loginUser: '', loginSaved: false, method: 'GET', language: 'fr', useForCategories: true, useForLocations: true, useForItems: true, stockRequest: '', useForStock: true };
 
 export function getOnestockConfig(): OnestockConfig {
+  let config = DEFAULT_ONESTOCK_CONFIG;
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...DEFAULT_ONESTOCK_CONFIG, ...(JSON.parse(raw) as Partial<OnestockConfig>) };
+    if (raw) config = { ...DEFAULT_ONESTOCK_CONFIG, ...(JSON.parse(raw) as Partial<OnestockConfig>) };
   } catch {
     /* ignore */
   }
-  return DEFAULT_ONESTOCK_CONFIG;
+  return withCallContext(config);
+}
+
+/** In a OneStock extension, {{url}} and {{site_id}} are the ones of the call (not the saved settings). */
+function withCallContext(config: OnestockConfig): OnestockConfig {
+  const ctx = extensionContext();
+  if (!ctx) return config;
+  return { ...config, siteId: ctx.site_id || config.siteId, url: ctx.api_url || config.url };
 }
 
 export function setOnestockConfig(config: OnestockConfig) {
@@ -107,11 +117,15 @@ export async function callOnestock<T = unknown>(
     });
   let res: Response;
   try {
-    res = await fetch(`${base}/onestock`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(proxy.apiKey ? { 'x-api-key': proxy.apiKey } : {}) },
-      body: JSON.stringify({ url: config.url.trim(), path, method, site_id: config.siteId.trim(), params }),
-    });
+    res = await apiFetch(
+      `${base}/onestock`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: config.url.trim(), path, method, site_id: config.siteId.trim(), params }),
+      },
+      proxy,
+    );
   } catch {
     const error = `Proxy unreachable (${base}/onestock)`;
     log({ ok: false, error });
@@ -600,11 +614,15 @@ export async function publishOnestockSettings(config = getOnestockConfig(), logi
 export async function testOnestockLogin(config: OnestockConfig, login?: { user: string; password: string }): Promise<string> {
   const proxy = getDbConfig();
   const base = proxy.apiUrl.replace(/\/+$/, '') || '/api';
-  const res = await fetch(`${base}/onestock`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(proxy.apiKey ? { 'x-api-key': proxy.apiKey } : {}) },
-    body: JSON.stringify({ url: config.url.trim(), path: '/login', site_id: config.siteId.trim(), ...(login?.password ? login : {}) }),
-  });
+  const res = await apiFetch(
+    `${base}/onestock`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: config.url.trim(), path: '/login', site_id: config.siteId.trim(), ...(login?.password ? login : {}) }),
+    },
+    proxy,
+  );
   const payload = (await res.json().catch(() => undefined)) as { data?: { user?: string }; error?: string } | undefined;
   if (!res.ok) throw new Error(payload?.error ?? `HTTP ${res.status}`);
   return payload?.data?.user ?? '';
@@ -622,7 +640,7 @@ export async function loadSharedOnestockSettings(): Promise<{ loaded: boolean; u
 export function applySharedOnestockSettings(shared: Record<string, unknown> | undefined, logins: Array<{ url: string; user: string }> = []): boolean {
   if (!shared && !logins.length) return false;
   const current = getOnestockConfig();
-  const merged = { ...current, ...((shared ?? {}) as Partial<OnestockConfig>), siteId: current.siteId };
+  const merged = withCallContext({ ...current, ...((shared ?? {}) as Partial<OnestockConfig>), siteId: current.siteId });
   // Login of the environment of the site (the password stays on the server).
   const login = logins.find((l) => l.url === envKey(merged.url));
   const next = { ...merged, loginUser: login?.user ?? '', loginSaved: !!login };

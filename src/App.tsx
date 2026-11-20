@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { api } from './api';
-import { dismissConnectionNotice, takeConnectionNotice } from './api/bootstrap';
+import { dismissConnectionNotice, takeConnectionNotice, takeExtensionError } from './api/bootstrap';
 import { getDbConfig } from './api/dbConfig';
 import { currentSiteId } from './api/site';
 import { DataVersionProvider, useDataVersion } from './components/DataVersion';
@@ -87,6 +87,11 @@ function Shell() {
           </button>
         )}
       </header>
+      {takeExtensionError() && (
+        <div className="connection-banner is-error">
+          OneStock extension: the session could not be opened — {takeExtensionError()}. Reload the page from OneStock.
+        </div>
+      )}
       {keyRequired && (
         <div className="connection-banner">
           A shared database is available on this deployment, protected by an API key: open the <strong>setup link</strong> sent by

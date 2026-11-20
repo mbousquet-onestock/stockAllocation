@@ -1,4 +1,5 @@
 import postgres from 'postgres';
+import { verifySession, type Session } from './session.js';
 
 /**
  * Postgres access for the Vercel functions.
@@ -126,6 +127,8 @@ export interface ApiRequest {
   headers: Record<string, string | string[] | undefined>;
   query: Record<string, string | string[] | undefined>;
   body?: unknown;
+  /** OneStock UI Extension session (Authorization: Bearer), set by route(). */
+  session?: Session;
 }
 
 export interface ApiResponse {
@@ -138,13 +141,25 @@ export class HttpError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** Machine-readable reason (e.g. session_expired), sent with the message. */
+    public code?: string,
   ) {
     super(message);
   }
 }
 
-/** Shared secret: when API_KEY is set on the server, every call must send it in the x-api-key header. */
-function checkApiKey(req: ApiRequest) {
+/**
+ * Access control: a OneStock UI Extension session (`Authorization: Bearer`, see session.ts), or the shared secret
+ * API_KEY in the x-api-key header (other callers: ERP, scripts, the application opened outside OneStock).
+ * No API_KEY on the server and no session: open access, as before.
+ */
+async function authenticate(req: ApiRequest) {
+  const auth = req.headers.authorization;
+  const bearer = typeof auth === 'string' && auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+  if (bearer) {
+    req.session = await verifySession(bearer);
+    return;
+  }
   const expected = process.env.API_KEY;
   if (!expected) return;
   const given = req.headers['x-api-key'];
@@ -154,11 +169,14 @@ function checkApiKey(req: ApiRequest) {
 type Handler = (req: ApiRequest, res: ApiResponse) => Promise<unknown>;
 
 /** Wraps a handler: API key check, method routing, JSON errors. */
-export function route(handlers: Partial<Record<'GET' | 'POST' | 'PUT' | 'DELETE', Handler>>, options: { schema?: boolean } = {}) {
+export function route(
+  handlers: Partial<Record<'GET' | 'POST' | 'PUT' | 'DELETE', Handler>>,
+  options: { schema?: boolean; /** false: no access control (e.g. the endpoint that opens a session). */ auth?: boolean } = {},
+) {
   return async (req: ApiRequest, res: ApiResponse) => {
     res.setHeader('Cache-Control', 'no-store');
     try {
-      checkApiKey(req);
+      if (options.auth !== false) await authenticate(req);
       if (options.schema !== false) await ensureSchemaOnce();
       const handler = handlers[(req.method ?? 'GET') as keyof typeof handlers];
       if (!handler) throw new HttpError(405, `Method ${req.method} not allowed`);
@@ -168,7 +186,7 @@ export function route(handlers: Partial<Record<'GET' | 'POST' | 'PUT' | 'DELETE'
       const status = e instanceof HttpError ? e.status : 500;
       const message = e instanceof Error ? e.message : String(e);
       if (status === 500) console.error(e);
-      res.status(status).json({ error: message });
+      res.status(status).json({ error: message, ...(e instanceof HttpError && e.code ? { code: e.code } : {}) });
     }
   };
 }
@@ -178,6 +196,8 @@ export function route(handlers: Partial<Record<'GET' | 'POST' | 'PUT' | 'DELETE'
  * Required for the site scoped data (rules, API calls, site settings).
  */
 export function siteOf(req: ApiRequest): string {
+  // OneStock extension session: its site only (the header cannot switch to another site).
+  if (req.session) return req.session.site_id;
   const header = req.headers['x-site-id'];
   const query = req.query.site_id;
   const site = String((Array.isArray(header) ? header[0] : header) ?? (Array.isArray(query) ? query[0] : query) ?? '').trim();
