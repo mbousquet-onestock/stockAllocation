@@ -123,34 +123,29 @@ export function EditStockLineModal({
             {type?.label} <code>{type?.code}</code>
           </div>
           {line.purchaseOrder && <div className="muted small">PO {line.purchaseOrder}</div>}
-          <div className="muted small">{line.quantity} pcs</div>
+          <span className="stock-qty">
+            <input
+              className={`input input--sm ${!quantityValid ? 'is-invalid' : ''}`}
+              inputMode="numeric"
+              value={quantityText}
+              onChange={(e) => setQuantityText(e.target.value)}
+              aria-label="Stock quantity"
+              title={`Stock quantity on ${type?.code}`}
+            />
+            <span className="muted small">pcs</span>
+          </span>
+          {delta !== 0 && (
+            <div className="muted small">
+              {line.quantity} → {quantity} ({delta > 0 ? '+' : ''}
+              {delta})
+            </div>
+          )}
         </div>
       </div>
 
       {line.source.type === 'onestock' && !line.eta && tree.byId(line.stockTypeId)?.future && (
         <p className="panel small text-warning">No ETA known for this purchase order in OneStock: the changes cannot be sent.</p>
       )}
-      <div className="stock-adjust">
-        <label className="field">
-          <span className="field__label">
-            Stock quantity <span className="muted">({type?.code})</span>
-          </span>
-          <input
-            className={`input ${!quantityValid ? 'is-invalid' : ''}`}
-            inputMode="numeric"
-            value={quantityText}
-            onChange={(e) => setQuantityText(e.target.value)}
-            aria-label="Stock quantity"
-          />
-        </label>
-        {delta !== 0 && (
-          <span className="muted small stock-adjust__result">
-            {line.quantity} → {quantity} ({delta > 0 ? '+' : ''}
-            {delta})
-          </span>
-        )}
-      </div>
-
       <h3 className="section-title">Activation period</h3>
       <PeriodField value={period} onChange={setPeriod} />
 
