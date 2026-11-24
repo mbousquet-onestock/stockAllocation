@@ -69,7 +69,7 @@ export function EditStockLineModal({
   const save = async () => {
     setSaving(true);
     try {
-      await api.updateStockLine({
+      const saved = await api.updateStockLine({
         ...line,
         quantity,
         period,
@@ -79,6 +79,14 @@ export function EditStockLineModal({
         ),
       });
       const change = delta ? ` · stock ${delta > 0 ? '+' : ''}${delta} (${quantity} pcs)` : '';
+      if (saved.confirmed === false) {
+        notify(
+          `Sent to OneStock, but not applied yet: OneStock still gives ${saved.onestockQuantity ?? '?'} pcs. Refresh in a moment; if it does not change, see the stock_import answer in Settings → API calls.`,
+          'error',
+        );
+        onSaved();
+        return;
+      }
       notify(
         line.source.type === 'onestock'
           ? `Segmentation sent to OneStock for ${location.name} · ${type?.code}${change}`
@@ -102,7 +110,7 @@ export function EditStockLineModal({
             Cancel
           </button>
           <button type="button" className="btn btn--primary" disabled={!valid || saving || (!groups.length && !delta)} onClick={save}>
-            Edit
+            {saving && line.source.type === 'onestock' ? 'Waiting for OneStock…' : 'Edit'}
           </button>
         </>
       }

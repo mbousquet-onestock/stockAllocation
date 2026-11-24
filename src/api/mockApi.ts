@@ -23,6 +23,7 @@ import { StockTypeTree } from '../utils/stockTypes';
 import { getDbConfig } from './dbConfig';
 import { currentSiteId } from './site';
 import {
+  invalidateStock,
   cachedItem,
   fetchCategories,
   fetchStock,
@@ -283,6 +284,28 @@ async function stockOf(itemIds: string[]): Promise<{ lines: StockLine[]; unknown
   });
   applyThresholds(lines, saved);
   return { lines, unknownTypes, onestock: true };
+}
+
+/**
+ * OneStock processes stock_import asynchronously: the stock of the line is read again (stock_export, no cache) until it
+ * gives the sent quantities, at most ONESTOCK_CONFIRM_MS.
+ */
+const ONESTOCK_CONFIRM_MS = 20_000;
+const ONESTOCK_CONFIRM_EVERY_MS = 2_000;
+async function waitForOnestockLine(line: StockLine): Promise<{ confirmed: boolean; quantity?: number }> {
+  const t = tree();
+  const same = (l: StockLine) =>
+    l.quantity === line.quantity && t.groupsOf(line.stockTypeId).every((g) => (l.split[g.id]?.quantity ?? 0) === (line.split[g.id]?.quantity ?? 0));
+  const end = Date.now() + ONESTOCK_CONFIRM_MS;
+  let quantity: number | undefined;
+  for (;;) {
+    await new Promise((r) => setTimeout(r, ONESTOCK_CONFIRM_EVERY_MS));
+    invalidateStock([line.itemId]);
+    const read = (await stockOf([line.itemId])).lines.find((l) => l.id === line.id);
+    quantity = read?.quantity ?? 0;
+    if (read ? same(read) : line.quantity === 0) return { confirmed: true, quantity };
+    if (Date.now() >= end) return { confirmed: false, quantity };
+  }
 }
 
 /** Demo locations, plus the OneStock endpoints when configured. */
@@ -888,7 +911,9 @@ export const mockApi: StockAllocationApi = {
       if (records.length) await pushStock(records);
       // Thresholds are not stored by OneStock: saved for the site (only those different from the rule of the line).
       await saveLineThresholds(line, effectiveRule(rules(), itemOf(line.itemId), line)?.thresholds);
-      return line;
+      if (!records.length) return line;
+      const read = await waitForOnestockLine(line);
+      return { ...line, confirmed: read.confirmed, onestockQuantity: read.quantity };
     }
     const idx = db.lines.findIndex((l) => l.id === line.id);
     if (idx < 0) return fail('Stock line not found');

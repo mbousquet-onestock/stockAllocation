@@ -14,7 +14,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const notify = useCallback((message: string, tone: Tone = 'success') => {
     const id = Date.now() + Math.random();
     setToasts((t) => [...t, { id, message, tone }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), tone === 'error' ? 10000 : 4000);
   }, []);
   return (
     <ToastContext.Provider value={notify}>

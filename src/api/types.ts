@@ -74,7 +74,11 @@ export interface StockAllocationApi {
   /** Sends the variations between stock lines as read and re-segmented to OneStock (incremental PATCH stock_import). */
   pushOnestockChanges(changes: Array<{ before: StockLine; after: StockLine }>): Promise<{ sent: number; calls: number }>;
   /** Manual override of the split of one stock line (sent to OneStock for OneStock lines). */
-  updateStockLine(line: StockLine): Promise<StockLine>;
+  /**
+   * OneStock: the change is sent with stock_import (processed asynchronously by OneStock), then the stock is read
+   * again until OneStock gives the new quantities: `confirmed` false when it still did not after a few seconds.
+   */
+  updateStockLine(line: StockLine): Promise<StockLine & { confirmed?: boolean; onestockQuantity?: number }>;
   searchItems(search: string, limit?: number): Promise<Item[]>;
 
   /** Mock only: restore the initial data set. */
