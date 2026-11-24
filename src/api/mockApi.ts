@@ -878,6 +878,7 @@ export const mockApi: StockAllocationApi = {
 
   async updateStockLine(line) {
     if (line.source.type === 'onestock' || line.remoteTypes) {
+      if (!Number.isSafeInteger(line.quantity) || line.quantity < 0) return fail('The stock cannot be negative');
       if (splitSum(line) > line.quantity) return fail('The split exceeds the stock quantity');
       if (tree().byId(line.stockTypeId)?.future && !line.eta) return fail('Future stock without ETA: it cannot be sent to OneStock');
       // Variations against the stock as displayed (the line read from OneStock).
@@ -892,8 +893,9 @@ export const mockApi: StockAllocationApi = {
     const idx = db.lines.findIndex((l) => l.id === line.id);
     if (idx < 0) return fail('Stock line not found');
     const current = db.lines[idx];
-    if (splitSum(line) > current.quantity) return fail('The split exceeds the stock quantity');
-    db.lines[idx] = { ...current, split: line.split, period: line.period, source: { type: 'manual' } };
+    if (!Number.isSafeInteger(line.quantity) || line.quantity < 0) return fail('The stock cannot be negative');
+    if (splitSum(line) > line.quantity) return fail('The split exceeds the stock quantity');
+    db.lines[idx] = { ...current, quantity: line.quantity, split: line.split, period: line.period, source: { type: 'manual' } };
     persist();
     return delay(db.lines[idx]);
   },
