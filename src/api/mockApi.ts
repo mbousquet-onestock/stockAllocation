@@ -840,6 +840,49 @@ export const mockApi: StockAllocationApi = {
     return delay({ alerts, checkedItems: ids.length, limited });
   },
 
+  async setStock({ itemId, locationId, stockTypeId, quantity }) {
+    const t = tree();
+    const type = t.byId(stockTypeId);
+    if (!type) return fail('Unknown stock type');
+    if (!Number.isSafeInteger(quantity) || quantity < 0) return fail('The quantity must be a whole number, 0 or more');
+    const mainId = type.parentId ?? type.id;
+    if (t.byId(mainId)?.future) return fail('Future stock needs a purchase order and an ETA: it cannot be set here');
+    if (useOnestockStock()) {
+      // Code as written in OneStock when the stock already exists (e.g. On_Hand_B2C), else the configured code.
+      const existing = (await stockOf([itemId])).lines.find((l) => l.locationId === locationId && l.stockTypeId === mainId && !l.purchaseOrder);
+      const code = existing?.remoteTypes?.[type.id] || type.code;
+      const config = getOnestockConfig();
+      await pushStock([{ item_id: itemId, endpoint_id: locationId, quantity, type: code }], config, false);
+      // OneStock applies stock_import later: read again until it gives the quantity.
+      const end = Date.now() + 20_000;
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 2_000));
+        const records = await fetchStock([itemId], config, true);
+        const found = records.filter(
+          (r) => r.endpoint_id === locationId && (r.type ?? 'on_hand').toLowerCase() === code.toLowerCase() && !r.purchase_order_number,
+        );
+        const read = found.reduce((s, r) => s + r.quantity, 0);
+        if (read === quantity) return { confirmed: true, onestockQuantity: read };
+        if (Date.now() >= end) return { confirmed: false, onestockQuantity: read };
+      }
+    }
+    // Local stock: the line of the main type in this location (created when missing).
+    let line = db.lines.find((l) => l.itemId === itemId && l.locationId === locationId && l.stockTypeId === mainId && !l.purchaseOrder);
+    if (!line) {
+      line = { ...newLine(itemId, locationId, mainId, null, 0), source: { type: 'manual' } };
+      db.lines.push(line);
+    }
+    if (type.id === mainId) line.quantity = quantity + splitSum(line);
+    else {
+      const before = line.split[type.id]?.quantity ?? 0;
+      line.split = { ...line.split, [type.id]: { quantity, threshold: line.split[type.id]?.threshold ?? null } };
+      line.quantity += quantity - before;
+    }
+    line.source = { type: 'manual' };
+    persist();
+    return delay({ confirmed: true });
+  },
+
   async getItemDetail(itemId) {
     await syncRules();
     const demo = ITEMS.find((i) => i.id === itemId);

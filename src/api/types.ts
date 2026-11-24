@@ -68,6 +68,14 @@ export interface StockAllocationApi {
   /** Items with a segment below its threshold (saved thresholds, or thresholds of the rules), most missing first. */
   getThresholdAlerts(): Promise<{ alerts: ThresholdAlert[]; checkedItems: number; limited: boolean }>;
   getItemDetail(itemId: string): Promise<ItemDetail>;
+  /**
+   * Sets the quantity of one stock type (main type or group) of an item in a stock location, creating the stock when
+   * there is none. OneStock: stock_import with incremental false, then read again until applied (`confirmed`).
+   */
+  setStock(input: { itemId: string; locationId: string; stockTypeId: string; quantity: number }): Promise<{
+    confirmed?: boolean;
+    onestockQuantity?: number;
+  }>;
   listLocations(): Promise<StockLocation[]>;
   /** OneStock stock: lines the rules would re-segment (all items with stock when itemIds is omitted). */
   previewOnestockRules(itemIds?: string[]): Promise<OnestockRulePreview>;

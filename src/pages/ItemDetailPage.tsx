@@ -7,6 +7,7 @@ import { useStockTypes } from '../components/StockTypes';
 import { ItemIdentity, Pagination, SortHeader, Spinner } from '../components/ui';
 import { ApplyRulesOnestockModal } from '../features/ApplyRulesOnestockModal';
 import { EditStockLineModal } from '../features/EditStockLineModal';
+import { SetStockModal } from '../features/SetStockModal';
 import { RuleEditorModal } from '../features/RuleEditorModal';
 import { SplitBar } from '../features/SplitBar';
 import { StockLineSearch, type LineFilterOption } from '../features/StockLineSearch';
@@ -46,6 +47,7 @@ export function ItemDetailPage() {
   const [pageSize, setPageSize] = useState(25);
   const [editing, setEditing] = useState<StockLineRow | null>(null);
   const [creatingRule, setCreatingRule] = useState(false);
+  const [settingStock, setSettingStock] = useState(false);
   const [applying, setApplying] = useState(false);
   const today = todayIso();
   const navigate = useNavigate();
@@ -252,6 +254,9 @@ export function ItemDetailPage() {
             }}
             options={lineOptions}
           />
+          <button type="button" className="btn btn--secondary" onClick={() => setSettingStock(true)}>
+            + Add / update stock
+          </button>
           {typeFilter && (
             <button type="button" className="chip chip--selected" onClick={() => setTypeFilter('')}>
               {tree.label(typeFilter)} ×
@@ -423,6 +428,17 @@ export function ItemDetailPage() {
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
+            bump();
+          }}
+        />
+      )}
+      {settingStock && (
+        <SetStockModal
+          item={detail.data.summary.item}
+          rows={detail.data.rows}
+          onClose={() => setSettingStock(false)}
+          onSaved={() => {
+            setSettingStock(false);
             bump();
           }}
         />
