@@ -40,7 +40,8 @@ import {
   useOnestockStock,
   applySharedOnestockSettings,
 } from './onestock';
-import { lineDeltaRecords, recordsToLines } from '../utils/onestockStock';
+import { lineDeltaRecords,
+  lineToRecords, recordsToLines } from '../utils/onestockStock';
 import { notifyBackgroundUpdate, persisted, whenIdle } from './background';
 import { remoteRules, rulesWritten } from './remoteRules';
 import { applyThresholds, itemsWithThresholds, loadThresholds, saveLineThresholds } from './thresholds';
@@ -907,8 +908,11 @@ export const mockApi: StockAllocationApi = {
       // Variations against the stock as displayed (the line read from OneStock).
       const before = (await stockOf([line.itemId])).lines.find((l) => l.id === line.id);
       if (!before) return fail('Stock line not found in OneStock: refresh the page');
-      const records = lineDeltaRecords(before, line, tree());
-      if (records.length) await pushStock(records);
+      // Manual change: the new quantities themselves (not incremental) of the stock types that change, so that a
+      // change sent twice (OneStock applies stock_import later) cannot be applied twice.
+      const changed = new Set(lineDeltaRecords(before, line, tree()).map((r) => r.type ?? ''));
+      const records = lineToRecords(line, tree()).filter((r) => changed.has(r.type ?? ''));
+      if (records.length) await pushStock(records, getOnestockConfig(), false);
       // Thresholds are not stored by OneStock: saved for the site (only those different from the rule of the line).
       await saveLineThresholds(line, effectiveRule(rules(), itemOf(line.itemId), line)?.thresholds);
       if (!records.length) return line;

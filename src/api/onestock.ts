@@ -565,14 +565,21 @@ async function exportRecords(itemIds: string[], config: OnestockConfig): Promise
 const IMPORT_BATCH = 500;
 
 /** PATCH stock_import by batches, then forgets the cached stock of these items. */
-export async function pushStock(records: StockImportRecord[], config = getOnestockConfig()): Promise<{ sent: number; calls: number }> {
+/**
+ * stock_import of some records. incremental (default): the quantities are variations added to the current stock;
+ * otherwise they are the new quantities of these item × endpoint × type.
+ */
+export async function pushStock(
+  records: StockImportRecord[],
+  config = getOnestockConfig(),
+  incremental = true,
+): Promise<{ sent: number; calls: number }> {
   let calls = 0;
   for (let i = 0; i < records.length; i += IMPORT_BATCH) {
     await callOnestock(
       '/stock_import',
       config,
-      // Incremental import: the quantities sent are variations added to the current stock.
-      { import: { incremental: true }, stocks: records.slice(i, i + IMPORT_BATCH) },
+      { import: { incremental }, stocks: records.slice(i, i + IMPORT_BATCH) },
       'PATCH',
     );
     calls++;
