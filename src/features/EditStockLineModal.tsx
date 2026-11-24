@@ -13,8 +13,6 @@ type Draft = Record<string, { quantity: string; threshold: string }>;
 const toInt = (v: string): number | null => (v.trim() === '' ? null : Number(v));
 const isValidInt = (v: string, optional: boolean) =>
   (optional && v.trim() === '') || (/^\d+$/.test(v.trim()) && Number.isSafeInteger(Number(v)));
-/** Stock adjustment: signed integer (+5, -3), empty = none. */
-const isValidAdjustment = (v: string) => v.trim() === '' || (/^[+-]?\d+$/.test(v.trim()) && Number.isSafeInteger(Number(v)));
 
 /** Manual split of one stock line onto the groups of its stock type. */
 export function EditStockLineModal({
@@ -54,23 +52,19 @@ export function EditStockLineModal({
     ),
   );
   const [saving, setSaving] = useState(false);
-  // Manual change of the stock quantity (added to / removed from the main type).
-  const [adjustment, setAdjustment] = useState('');
-  const adjustmentValid = isValidAdjustment(adjustment);
-  const delta = adjustmentValid ? Number(adjustment.trim() || 0) : 0;
-  const quantity = line.quantity + delta;
-  const step = (by: number) => {
-    const next = delta + by;
-    setAdjustment(next === 0 ? '' : next > 0 ? `+${next}` : String(next));
-  };
+  // New stock quantity of the line: the variation is added to / removed from the main type.
+  const [quantityText, setQuantityText] = useState(String(line.quantity));
+  const quantityValid = isValidInt(quantityText, false);
+  const quantity = quantityValid ? Number(quantityText) : line.quantity;
+  const delta = quantity - line.quantity;
 
   const set = (id: string, field: 'quantity' | 'threshold', value: string) =>
     setDraft((d) => ({ ...d, [id]: { ...d[id], [field]: value } }));
 
   const split = groups.reduce((s, g) => s + (toInt(draft[g.id].quantity) ?? 0), 0);
   const left = quantity - split;
-  const fieldsValid = adjustmentValid && groups.every((g) => isValidInt(draft[g.id].quantity, false) && isValidInt(draft[g.id].threshold, true));
-  const valid = fieldsValid && quantity >= 0 && left >= 0 && isPeriodValid(period);
+  const fieldsValid = quantityValid && groups.every((g) => isValidInt(draft[g.id].quantity, false) && isValidInt(draft[g.id].threshold, true));
+  const valid = fieldsValid && left >= 0 && isPeriodValid(period);
 
   const save = async () => {
     setSaving(true);
@@ -136,37 +130,26 @@ export function EditStockLineModal({
       {line.source.type === 'onestock' && !line.eta && tree.byId(line.stockTypeId)?.future && (
         <p className="panel small text-warning">No ETA known for this purchase order in OneStock: the changes cannot be sent.</p>
       )}
-      <h3 className="section-title">Stock quantity</h3>
       <div className="stock-adjust">
         <label className="field">
           <span className="field__label">
-            Add or remove <span className="muted">(on {type?.code})</span>
+            Stock quantity <span className="muted">({type?.code})</span>
           </span>
-          <span className={`input-group ${!adjustmentValid || quantity < 0 ? 'is-invalid' : ''}`}>
-            <button type="button" className="input-group__addon input-group__btn" onClick={() => step(-1)} aria-label="Remove one">
-              −
-            </button>
-            <input
-              inputMode="numeric"
-              value={adjustment}
-              placeholder="e.g. +5 or -3"
-              onChange={(e) => setAdjustment(e.target.value)}
-              aria-label="Stock adjustment"
-            />
-            <button type="button" className="input-group__addon input-group__btn" onClick={() => step(1)} aria-label="Add one">
-              +
-            </button>
-          </span>
+          <input
+            className={`input ${!quantityValid ? 'is-invalid' : ''}`}
+            inputMode="numeric"
+            value={quantityText}
+            onChange={(e) => setQuantityText(e.target.value)}
+            aria-label="Stock quantity"
+          />
         </label>
-        <div className="stock-adjust__result">
-          <span className="muted small">New stock</span>
-          <strong className={quantity < 0 ? 'text-error' : delta ? 'text-accent' : ''}>
-            {line.quantity}
-            {delta !== 0 && ` → ${adjustmentValid ? quantity : '—'}`} pcs
-          </strong>
-        </div>
+        {delta !== 0 && (
+          <span className="muted small stock-adjust__result">
+            {line.quantity} → {quantity} ({delta > 0 ? '+' : ''}
+            {delta})
+          </span>
+        )}
       </div>
-      {quantity < 0 && <div className="text-error small">The stock cannot be negative.</div>}
 
       <h3 className="section-title">Activation period</h3>
       <PeriodField value={period} onChange={setPeriod} />
@@ -223,7 +206,7 @@ export function EditStockLineModal({
           {fieldsValid ? left : '—'} : stays on {type?.code}
         </strong>
         <span className="muted"> / {quantity} in stock</span>
-        {left < 0 && quantity >= 0 && <div className="text-error small">The split exceeds the stock quantity by {-left}.</div>}
+        {left < 0 && <div className="text-error small">The split exceeds the stock quantity by {-left}.</div>}
       </div>
     </Modal>
   );

@@ -487,8 +487,6 @@ tr.is-drop-after td { box-shadow: inset 0 -2px 0 var(--primary); }
 .form-row--even { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .catalog-loading { display: inline-flex; align-items: center; gap: 6px; } .catalog-loading .spinner { width: 14px; height: 14px; margin: 0; border-width: 2px; }
 .connection-banner.is-error { border-color: var(--danger, #e74c3c); background: #fdecea; }
-.stock-adjust { display: grid; grid-template-columns: minmax(0, 1fr) 170px; gap: 16px; align-items: end; }
-.stock-adjust .input-group input { text-align: center; }
-.stock-adjust .input-group__btn { min-width: 36px; font-size: 16px; font-weight: 500; }
-.stock-adjust__result { display: flex; flex-direction: column; gap: 4px; padding-bottom: 8px; }
-.text-accent { color: var(--primary, #24bdb0); }
+.stock-adjust { display: flex; gap: 16px; align-items: end; margin-top: 16px; }
+.stock-adjust .field { width: 200px; }
+.stock-adjust__result { padding-bottom: 10px; }
